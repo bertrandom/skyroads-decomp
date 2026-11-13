@@ -2,6 +2,7 @@
  * output lost segment registers, register arguments or self-modifying code.
  * Each function lists the original address. */
 #include "compat.h"
+#include "protos.h"
 #include <SDL.h>
 
 #define DS16(off) (*(volatile uint16_t *)(g_ds + (off)))
@@ -16,17 +17,6 @@ void speaker_gate(int on);
 void sb_stop(void);
 void opl_silence(void);
 
-void FUN_1000_417e();
-void FUN_1000_3c9a();
-void FUN_1000_3b6b();
-void FUN_1000_58a5();
-void FUN_1000_5bc0();
-void FUN_1000_601d();
-void FUN_1000_6001();
-void FUN_1000_3d18();
-void FUN_1000_3e0f();
-uint32_t FUN_1000_3e4c();
-int16_t FUN_1000_5ca6();
 
 /* 1000:0046  shut down and exit */
 void FUN_1000_0046(void)
@@ -129,10 +119,10 @@ void FUN_1000_0f8c(int _off, int _seg, int _lit)
     FUN_1000_0f62((uint16_t)(off + 4), seg, (uint16_t)(w * h), c1, c2);
     if (DS16(0x3c) == 0) FUN_1000_3c9a();
     FUN_1000_417e(0, 0xa000, 0, 1);
-    FUN_1000_4201(desc);
+    FUN_1000_4201((uintptr_t)desc);
     if (DS16(0x3c) == 0) {
         FUN_1000_417e(0, 0xa200, 0, 1);
-        FUN_1000_4201(desc);
+        FUN_1000_4201((uintptr_t)desc);
     }
 }
 
@@ -155,10 +145,10 @@ void FUN_1000_1073(int _x, int _y, int _w, int _h, int _src)
     desc[3] = w;
     if (DS16(0x3c) == 0) FUN_1000_3c9a();
     FUN_1000_417e(0, 0xa000, 0, 0);
-    FUN_1000_4201(desc);
+    FUN_1000_4201((uintptr_t)desc);
     if (DS16(0x3c) == 0) {
         FUN_1000_417e(0, 0xa200, 0, 0);
-        FUN_1000_4201(desc);
+        FUN_1000_4201((uintptr_t)desc);
     }
 }
 

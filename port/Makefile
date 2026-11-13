@@ -27,7 +27,9 @@ APP  = SkyRoads.app
 
 all: skyroads
 
-game.c game.h: ../build/skyroads.c transform.py runtime.h
+MANUAL_SRC = runtime.c manual.c render.c audio.c hw.c video.c
+
+game.c game.h protos.h: ../build/skyroads.c transform.py gen_protos.py $(MANUAL_SRC)
 	python3 transform.py
 
 regen:
@@ -36,10 +38,10 @@ regen:
 image_data.h: ../build/SKYROADS_unpacked.EXE gen_image.py
 	python3 gen_image.py ../build/SKYROADS_unpacked.EXE image_data.h
 
-%.o: %.c compat.h runtime.h
+%.o: %.c compat.h protos.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
 
-game.o: game.c game.h compat.h runtime.h
+game.o: game.c game.h compat.h protos.h
 main.o: main.c image_data.h compat.h
 runtime.o: runtime.c font8x8.h compat.h
 
@@ -57,7 +59,7 @@ app: skyroads
 	@echo "built $(APP)"
 
 clean:
-	rm -f $(OBJS) skyroads game.c game.h image_data.h
+	rm -f $(OBJS) skyroads game.c game.h protos.h image_data.h arity.log
 	rm -rf $(APP)
 
 .PHONY: all app clean regen

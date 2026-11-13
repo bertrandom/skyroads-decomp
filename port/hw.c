@@ -9,6 +9,7 @@
  * handlers; they are re-implemented here from the disassembly at
  * 1000:3b17 and 1000:3bcc. */
 #include "compat.h"
+#include "protos.h"
 #include <stdatomic.h>
 #include <SDL.h>
 

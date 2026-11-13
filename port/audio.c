@@ -9,6 +9,7 @@
  * - speaker_*: PC speaker square wave (channel 2 of the PIT).
  */
 #include "compat.h"
+#include "protos.h"
 #include <math.h>
 #include <SDL.h>
 

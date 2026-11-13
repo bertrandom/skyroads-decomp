@@ -17,6 +17,7 @@
  * shape is: colour byte, 16-bit start offset, then (x, length, 0) span
  * triples, terminated by 0xff.  Spans are drawn one screen line apart. */
 #include "compat.h"
+#include "protos.h"
 
 #define DS16(off) (*(volatile uint16_t *)(g_ds + (uint16_t)(off)))
 #define DS8(off)  (*(volatile uint8_t  *)(g_ds + (uint16_t)(off)))
@@ -549,11 +550,6 @@ uint16_t FUN_1000_2cce(void)
 /* ------------------------------------------------------------------ */
 /* 1000:0c98  per-frame: draw road and ship from the game state        */
 /* ------------------------------------------------------------------ */
-int16_t FUN_1000_0533();
-int16_t FUN_1000_0baf();
-int16_t FUN_1000_0be9();
-int16_t FUN_1000_0c26();
-uint32_t FUN_1000_5d8c();
 
 void FUN_1000_0c98(int param_1)
 {

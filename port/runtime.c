@@ -1,48 +1,11 @@
 /* Native implementations of the decompiled DOS/BIOS/compiler-runtime helpers.
  * See runtime.h and docs in transform.py. */
 #include "compat.h"
+#include "protos.h"
 #include <unistd.h>
 void SDL_Delay(uint32_t ms);
 static void SDL_Delay_hint(void) { SDL_Delay(1); }
 
-void FUN_1000_01b8();
-void FUN_1000_0069();
-void FUN_1000_413c();
-void FUN_1000_4153();
-void FUN_1000_58a5();
-void FUN_1000_5a7d();
-void FUN_1000_5c11();
-void FUN_1000_5c26();
-void FUN_1000_5c82();
-void FUN_1000_5f7d();
-int16_t FUN_1000_5ca6();
-uint16_t FUN_1000_5c36();
-uint16_t FUN_1000_5c77();
-void FUN_1000_5c59();
-void FUN_1000_5d07();
-void FUN_1000_5d33();
-void FUN_1000_5fd4();
-void FUN_1000_6053();
-uint32_t FUN_1000_6168();
-void FUN_1000_6326();
-void FUN_1000_6350();
-void FUN_1000_609f();
-uint16_t FUN_1000_3ef4();
-void FUN_1000_3f72();
-void FUN_1000_6364();
-void FUN_1000_63f0();
-void FUN_1000_6420();
-uint8_t FUN_1000_6490();
-int16_t FUN_1000_64ab();
-uint16_t FUN_1000_6576();
-void FUN_1000_6595();
-void FUN_1000_6679();
-void FUN_1000_66e6();
-void FUN_1000_4052();
-void FUN_1000_3d9e();
-uint16_t FUN_1000_3fe2();
-uint16_t FUN_1000_3f91();
-void FUN_1000_4084();
 
 /* ------------------------------------------------------------------ */
 /* globals                                                             */
@@ -457,7 +420,6 @@ void FUN_1000_4b43(uintptr_t p1, int _param_2)
     uint16_t param_2 = (uint16_t)_param_2;
     uint16_t *param_1 = (uint16_t *)near_ptr(p1);
     uint16_t seg;
-    extern void FUN_1000_0069();
     seg = FUN_1000_3ef4(0x300, 0);
     param_1[0] = seg;
     FUN_1000_0069();
@@ -1042,7 +1004,6 @@ void FUN_1000_5c82(uintptr_t str)
 /* ------------------------------------------------------------------ */
 /* entry point                                                         */
 /* ------------------------------------------------------------------ */
-void FUN_1000_01b8();   /* generated main game routine */
 
 void entry(void)
 {

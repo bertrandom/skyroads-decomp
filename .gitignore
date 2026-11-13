@@ -19,3 +19,5 @@ port/image_data.h
 # web port build outputs
 web/build/
 web/dist/
+port/protos.h
+port/arity.log

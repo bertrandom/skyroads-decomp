@@ -5,6 +5,7 @@
  * Graphics Controller registers so the ported code (and any remaining
  * register-level helpers) behave like the original. */
 #include "compat.h"
+#include "protos.h"
 #define DS16(off) (*(uint16_t *)(g_ds + (off)))
 
 /* Graphics controller / sequencer / DAC state. */
