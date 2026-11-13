@@ -33,7 +33,8 @@ Progress (`skyroads.cfg`) is stored in
 
 | file | contents |
 |------|----------|
-| `transform.py` | turns `../build/skyroads.c` into `game.c`/`game.h` (types, DS memory accesses, K&R definitions, real stack frames, call-site fixups) |
+| `transform.py` | turns `../build/skyroads.c` into `game.c`/`game.h` (types, DS memory accesses, K&R definitions, real stack frames, call-site fixups, argument-count normalisation logged to `arity.log`) |
+| `gen_protos.py` | writes `protos.h`: one full prototype per function, derived from the definitions |
 | `game.c` | generated game logic (~80 functions) |
 | `manual.c` | blitters, timer/keyboard hooks and other routines whose decompilation lost segment registers |
 | `render.c` | the road/ship renderer (hand written assembly at 1000:2cce–3acb) and its per-frame driver |
@@ -60,6 +61,8 @@ Debug helpers (environment variables): `SKY_DEBUG=1` (file/alloc tracing),
 (scripted input), `SKY_AUTOKEYS=0d,4800,…` (keys for blocking menu reads),
 `SKY_WARP=n` (jump to n rows before the end of the road), `SKY_WAV=file`
 (raw audio dump).  `run_test.sh` and `check_arity.py` are development aids.
+
+A WebAssembly build of the same code lives in `../web` (see its README).
 
 ## Limitations
 

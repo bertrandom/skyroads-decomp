@@ -2,6 +2,10 @@
 #include "compat.h"
 #include <SDL.h>
 #include <ctype.h>
+#include <stdatomic.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 #include <strings.h>
 
 void hw_key_event(const SDL_KeyboardEvent *k, int down);
@@ -60,10 +64,16 @@ int plat_init(void)
         return -1;
     }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+#ifdef __EMSCRIPTEN__
+    /* the canvas is scaled by CSS in the page */
+    s_window = SDL_CreateWindow("SkyRoads", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                320 * s_scale, 240 * s_scale, 0);
+#else
     s_window = SDL_CreateWindow("SkyRoads",
                                 SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                 320 * s_scale, 240 * s_scale,
                                 SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+#endif
     if (!s_window) return -1;
     s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_ACCELERATED |
                                     SDL_RENDERER_PRESENTVSYNC);
@@ -192,63 +202,107 @@ static void debug_tick(uint64_t t)
     }
 }
 
-/* Main-thread loop: events + presentation at the display refresh rate. */
-void plat_run(int (*game_done)(void))
+/* One main-thread iteration: events, input, presentation.  Returns 0 when
+ * the user asked to quit. */
+static int frame_step(void)
 {
-    uint64_t last = SDL_GetTicks64();
-    while (!game_done()) {
-        SDL_Event e;
-        while (SDL_PollEvent(&e)) {
-            switch (e.type) {
-                case SDL_QUIT:
-                    return;
-                case SDL_KEYDOWN:
-                    if (e.key.keysym.sym == SDLK_RETURN &&
-                        (e.key.keysym.mod & (KMOD_ALT | KMOD_GUI))) {
-                        Uint32 fs = SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
-                        SDL_SetWindowFullscreen(s_window, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-                        break;
-                    }
-                    if (e.key.keysym.sym == SDLK_q && (e.key.keysym.mod & KMOD_GUI))
-                        return;
-                    hw_key_event(&e.key, 1);
-                    break;
-                case SDL_KEYUP:
-                    hw_key_event(&e.key, 0);
-                    break;
-                case SDL_MOUSEMOTION:
-                    if (hw_mouse_mode()) hw_mouse_motion(e.motion.xrel, e.motion.yrel);
-                    break;
-                case SDL_MOUSEBUTTONDOWN:
-                case SDL_MOUSEBUTTONUP: {
-                    Uint32 st = SDL_GetMouseState(NULL, NULL);
-                    hw_mouse_buttons(((st & SDL_BUTTON_LMASK) ? 1 : 0) | ((st & SDL_BUTTON_RMASK) ? 2 : 0));
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        switch (e.type) {
+            case SDL_QUIT:
+                return 0;
+            case SDL_KEYDOWN:
+                if (e.key.keysym.sym == SDLK_RETURN &&
+                    (e.key.keysym.mod & (KMOD_ALT | KMOD_GUI))) {
+                    Uint32 fs = SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+                    SDL_SetWindowFullscreen(s_window, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                     break;
                 }
-                case SDL_CONTROLLERDEVICEADDED:
-                    if (!s_pad) s_pad = SDL_GameControllerOpen(e.cdevice.which);
-                    break;
-                case SDL_CONTROLLERDEVICEREMOVED:
-                    if (s_pad && !SDL_GameControllerGetAttached(s_pad)) {
-                        SDL_GameControllerClose(s_pad); s_pad = NULL;
-                    }
-                    break;
-                case SDL_CONTROLLERBUTTONDOWN:
-                case SDL_CONTROLLERBUTTONUP:
-                    pad_button(e.cbutton.button, e.type == SDL_CONTROLLERBUTTONDOWN);
-                    break;
-                default:
-                    break;
+#ifndef __EMSCRIPTEN__
+                if (e.key.keysym.sym == SDLK_q && (e.key.keysym.mod & KMOD_GUI))
+                    return 0;
+#endif
+                hw_key_event(&e.key, 1);
+                break;
+            case SDL_KEYUP:
+                hw_key_event(&e.key, 0);
+                break;
+            case SDL_MOUSEMOTION:
+                if (hw_mouse_mode()) hw_mouse_motion(e.motion.xrel, e.motion.yrel);
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+            case SDL_MOUSEBUTTONUP: {
+                Uint32 st = SDL_GetMouseState(NULL, NULL);
+                hw_mouse_buttons(((st & SDL_BUTTON_LMASK) ? 1 : 0) | ((st & SDL_BUTTON_RMASK) ? 2 : 0));
+                break;
             }
+            case SDL_CONTROLLERDEVICEADDED:
+                if (!s_pad) s_pad = SDL_GameControllerOpen(e.cdevice.which);
+                break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+                if (s_pad && !SDL_GameControllerGetAttached(s_pad)) {
+                    SDL_GameControllerClose(s_pad); s_pad = NULL;
+                }
+                break;
+            case SDL_CONTROLLERBUTTONDOWN:
+            case SDL_CONTROLLERBUTTONUP:
+                pad_button(e.cbutton.button, e.type == SDL_CONTROLLERBUTTONDOWN);
+                break;
+            default:
+                break;
         }
-        pad_axes();
-        {   /* capture the mouse only while the game uses mouse control */
-            SDL_bool want = hw_mouse_mode() ? SDL_TRUE : SDL_FALSE;
-            if (SDL_GetRelativeMouseMode() != want) SDL_SetRelativeMouseMode(want);
-        }
+    }
+    pad_axes();
+    {   /* capture the mouse only while the game uses mouse control */
+        SDL_bool want = hw_mouse_mode() ? SDL_TRUE : SDL_FALSE;
+        if (SDL_GetRelativeMouseMode() != want) SDL_SetRelativeMouseMode(want);
+    }
+    plat_present();
+    hw_vsync_signal();
+    debug_tick(SDL_GetTicks64());
+    return 1;
+}
+
+static atomic_int s_save_dirty;     /* a file was written: persist it */
+
+#ifdef __EMSCRIPTEN__
+static int (*s_game_done)(void);
+static void (*s_start_game)(void);
+static int s_started;
+
+static void web_frame(void)
+{
+    if (!s_started) {
+        /* wait until the saved files have been loaded from IndexedDB */
+        if (!EM_ASM_INT({ return Module.skyFsReady ? 1 : 0; })) return;
+        s_started = 1;
+        s_start_game();
+        EM_ASM({ if (Module.onGameStarted) Module.onGameStarted(); });
+    }
+    if (atomic_exchange(&s_save_dirty, 0))
+        EM_ASM({ FS.syncfs(false, function (err) { if (err) console.warn('save failed', err); }); });
+    frame_step();
+    if (s_game_done()) {
+        snd_pause();
         plat_present();
-        hw_vsync_signal();
-        debug_tick(SDL_GetTicks64());
+        emscripten_cancel_main_loop();
+        EM_ASM({ if (Module.onGameExit) Module.onGameExit(); });
+    }
+}
+#endif
+
+/* Main-thread loop: events + presentation at the display refresh rate. */
+void plat_run(int (*game_done)(void), void (*start_game)(void))
+{
+#ifdef __EMSCRIPTEN__
+    s_game_done = game_done;
+    s_start_game = start_game;
+    emscripten_set_main_loop(web_frame, 0, 1);
+#else
+    uint64_t last = SDL_GetTicks64();
+    start_game();
+    while (!game_done()) {
+        if (!frame_step()) return;
         /* if vsync is unavailable, pace at ~70 Hz like VGA mode 13h */
         {
             uint64_t now = SDL_GetTicks64();
@@ -256,6 +310,7 @@ void plat_run(int (*game_done)(void))
             last = SDL_GetTicks64();
         }
     }
+#endif
 }
 
 uint64_t plat_millis(void) { return SDL_GetTicks64(); }
@@ -263,7 +318,7 @@ uint64_t plat_millis(void) { return SDL_GetTicks64(); }
 /* ------------------------------------------------------------------ */
 /* file access (DOS names are case-insensitive)                        */
 /* ------------------------------------------------------------------ */
-struct SkyFile { FILE *fp; };
+struct SkyFile { FILE *fp; int writing; };
 
 static FILE *open_ci(const char *name, const char *mode)
 {
@@ -280,6 +335,11 @@ static FILE *open_ci(const char *name, const char *mode)
 /* the configuration / progress file lives in the user's preferences folder */
 static const char *map_name(const char *name, char *buf, size_t n)
 {
+#ifdef __EMSCRIPTEN__
+    /* /save is an IndexedDB-backed mount (see main.c) */
+    if (strcasecmp(name, "skyroads.cfg") == 0) { snprintf(buf, n, "/save/skyroads.cfg"); return buf; }
+    return name;
+#endif
     if (strcasecmp(name, "skyroads.cfg") == 0) {
         char *dir = SDL_GetPrefPath("SkyRoads", "SkyRoads");
         if (dir) { snprintf(buf, n, "%sskyroads.cfg", dir); SDL_free(dir); return buf; }
@@ -308,6 +368,7 @@ SkyFile *sky_create(const char *name)
     if (!fp) return NULL;
     f = (SkyFile *)calloc(1, sizeof(SkyFile));
     f->fp = fp;
+    f->writing = 1;
     return f;
 }
 int sky_read(SkyFile *f, void *dst, int len) { return (int)fread(dst, 1, len, f->fp); }
@@ -319,5 +380,11 @@ long sky_seek(SkyFile *f, long off, int whence)
     return ftell(f->fp);
 }
 long sky_tell(SkyFile *f) { return ftell(f->fp); }
-void sky_close(SkyFile *f) { if (f) { fclose(f->fp); free(f); } }
+void sky_close(SkyFile *f)
+{
+    if (!f) return;
+    fclose(f->fp);
+    if (f->writing) atomic_store(&s_save_dirty, 1);
+    free(f);
+}
 int sky_eof(SkyFile *f) { return feof(f->fp); }

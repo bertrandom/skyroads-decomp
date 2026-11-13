@@ -21,3 +21,4 @@ web/build/
 web/dist/
 port/protos.h
 port/arity.log
+.view/

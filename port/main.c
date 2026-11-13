@@ -4,10 +4,14 @@
 #include <unistd.h>
 #include <stdatomic.h>
 #include <SDL.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <pthread.h>
+#endif
 
 void entry(void);
 void hw_start(void);
-void plat_run(int (*game_done)(void));
+void plat_run(int (*game_done)(void), void (*start_game)(void));
 
 static atomic_int s_game_done;
 
@@ -20,6 +24,24 @@ static int game_thread(void *arg)
 }
 
 static int game_done(void) { return atomic_load(&s_game_done); }
+
+static void start_game(void)
+{
+    SDL_CreateThread(game_thread, "game", NULL);
+}
+
+/* DOS "terminate program" (1000:6001): stop the game thread. */
+void game_exit(int code)
+{
+    fflush(stdout);
+#ifdef __EMSCRIPTEN__
+    atomic_store(&s_game_done, 1);
+    (void)code;
+    pthread_exit(NULL);
+#else
+    _exit(code & 0xff);
+#endif
+}
 
 static int try_dir(const char *d)
 {
@@ -69,10 +91,20 @@ int main(int argc, char **argv)
     g_ds = g_mem + DS_BASE;
 
     find_data_dir();
+#ifdef __EMSCRIPTEN__
+    /* saved progress lives in IndexedDB; load it before the game starts */
+    EM_ASM({
+        FS.mkdir('/save');
+        FS.mount(IDBFS, {}, '/save');
+        FS.syncfs(true, function (err) {
+            if (err) console.warn('could not load saved data', err);
+            Module.skyFsReady = 1;
+        });
+    });
+#endif
     if (plat_init() != 0) return 1;
     hw_start();
-    SDL_CreateThread(game_thread, "game", NULL);
-    plat_run(game_done);
+    plat_run(game_done, start_game);
     plat_shutdown();
     _exit(0);
 }

@@ -280,13 +280,59 @@ static volatile int s_spk_gate;
 static volatile uint16_t s_spk_div;
 static double s_spk_phase;
 
+#ifdef __EMSCRIPTEN__
+/* The browser renders audio on the main thread and SDL's device lock is a
+ * no-op there, so OPL register writes from the timer thread go through a
+ * single-producer/single-consumer queue stamped with the timer tick; the
+ * synthesizer applies them at the matching sample, a fixed latency behind. */
+#include <stdatomic.h>
+#define OPLQ 4096
+typedef struct { uint32_t tick; uint8_t reg, val; } OplEvt;
+static OplEvt s_q[OPLQ];
+static atomic_uint s_q_w, s_q_r;
+static atomic_uint s_tick;          /* music ticks (180 Hz) */
+static double s_synth_tick = -1;    /* tick position of the next sample */
+#define TICK_SAMPLES (RATE / 180.0)
+#define LATENCY_TICKS 16.0
+
+static void oplq_push(uint8_t reg, uint8_t val)
+{
+    unsigned w = atomic_load_explicit(&s_q_w, memory_order_relaxed);
+    if (w - atomic_load_explicit(&s_q_r, memory_order_acquire) >= OPLQ) return;
+    s_q[w % OPLQ].tick = atomic_load_explicit(&s_tick, memory_order_relaxed);
+    s_q[w % OPLQ].reg = reg;
+    s_q[w % OPLQ].val = val;
+    atomic_store_explicit(&s_q_w, w + 1, memory_order_release);
+}
+
+static void oplq_apply(void)
+{
+    unsigned r = atomic_load_explicit(&s_q_r, memory_order_relaxed);
+    unsigned w = atomic_load_explicit(&s_q_w, memory_order_acquire);
+    double now = (double)atomic_load_explicit(&s_tick, memory_order_relaxed);
+    /* keep the synth clock LATENCY_TICKS behind the music clock */
+    if (s_synth_tick < 0 || s_synth_tick > now || s_synth_tick < now - 4 * LATENCY_TICKS)
+        s_synth_tick = now - LATENCY_TICKS;
+    while (r != w && (double)s_q[r % OPLQ].tick <= s_synth_tick) {
+        opl_write(s_q[r % OPLQ].reg, s_q[r % OPLQ].val);
+        r++;
+    }
+    atomic_store_explicit(&s_q_r, r, memory_order_release);
+}
+#endif
+
 static void audio_cb(void *ud, Uint8 *stream, int len)
 {
     int16_t *out = (int16_t *)stream;
     int i, n = len / 2;
     (void)ud;
     for (i = 0; i < n; i++) {
-        double v = opl_sample() * 0.18;
+        double v;
+#ifdef __EMSCRIPTEN__
+        if ((i & 31) == 0) oplq_apply();
+        s_synth_tick += 1.0 / TICK_SAMPLES;
+#endif
+        v = opl_sample() * 0.18;
         if (s_sb_data) {
             uint32_t p = (uint32_t)s_sb_pos;
             if (p < s_sb_len) {
@@ -318,7 +364,11 @@ void snd_init(void)
     want.freq = RATE;
     want.format = AUDIO_S16SYS;
     want.channels = 1;
+#ifdef __EMSCRIPTEN__
+    want.samples = 2048;
+#else
     want.samples = 1024;
+#endif
     want.callback = audio_cb;
     s_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (s_dev) SDL_PauseAudioDevice(s_dev, 0);
@@ -351,15 +401,20 @@ void speaker_gate(int on) { s_spk_gate = on; }
 void snd_speaker_on(uint16_t div) { (void)div; speaker_gate(1); }
 void snd_speaker_off(void) { speaker_gate(0); }
 void snd_write_dac(uint8_t s) { (void)s; }
+void snd_pause(void) { if (s_dev) SDL_PauseAudioDevice(s_dev, 1); }
 
 /* ================================================================== */
 /* music player (port of 1000:5892..1000:5a7d)                         */
 /* ================================================================== */
 static void mus_w(uint8_t reg, uint8_t val)        /* 1000:5892 */
 {
+#ifdef __EMSCRIPTEN__
+    oplq_push(reg, val);
+#else
     lock();
     opl_write(reg, val);
     unlock();
+#endif
 }
 
 static void mus_keyoff(uint8_t ch)                 /* 1000:59cf */
@@ -428,6 +483,9 @@ static void mus_volume(uint8_t ch, uint8_t vol)    /* 1000:5a0d */
 void music_tick(void)
 {
     int guard = 0;
+#ifdef __EMSCRIPTEN__
+    atomic_fetch_add_explicit(&s_tick, 1, memory_order_relaxed);
+#endif
     for (;;) {
         uint16_t si, w;
         uint8_t al, ah;

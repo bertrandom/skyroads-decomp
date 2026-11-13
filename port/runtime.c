@@ -636,7 +636,8 @@ int16_t FUN_1000_60ab(int _handle, uintptr_t buf, int _len)
 }
 
 /* 1000:6001  DOS 4Ch: terminate */
-void FUN_1000_6001(uint16_t code) { fflush(stdout); _exit(code & 0xff); }
+void game_exit(int code);
+void FUN_1000_6001(int code) { game_exit(code); }
 
 /* ------------------------------------------------------------------ */
 /* BIOS / video mode                                                   */

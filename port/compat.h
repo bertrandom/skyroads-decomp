@@ -76,12 +76,19 @@ void     port_out(uint16_t port, uint16_t val);
  * below 64 KiB are treated as DS offsets, anything else is already a native
  * pointer (e.g. &stack_local or a pointer into g_mem). */
 static inline uint8_t *near_ptr(uintptr_t p) {
-    /* user-space pointers on 64-bit macOS are always >= 4 GiB; small values
+    /* user-space pointers on 64-bit macOS are always >= 4 GiB (on wasm32 the
+     * build keeps them >= 64 KiB); small values
      * (possibly sign-extended) are 16-bit DS offsets.  The data segment is
      * 64 KiB aligned in host memory, so a truncated pointer into DS equals
      * its DS offset. */
+#if UINTPTR_MAX > 0xffffffffu
     if (p < 0x100000000ull || p >= 0xffffffffffff0000ull)
         return g_ds + (uint16_t)p;
+#else
+    /* wasm32: the build places all host data above 64 KiB (see web/Makefile) */
+    if (p < 0x10000u || p >= 0xffff0000u)
+        return g_ds + (uint16_t)p;
+#endif
     return (uint8_t *)p;
 }
 
@@ -141,6 +148,7 @@ void     video_blit(void);
 
 /* Audio: 8-bit unsigned mono output queue (PC speaker / DAC emulation). */
 void snd_init(void);
+void snd_pause(void);
 void snd_write_dac(uint8_t sample);
 void snd_speaker_on(uint16_t divisor);
 void snd_speaker_off(void);
