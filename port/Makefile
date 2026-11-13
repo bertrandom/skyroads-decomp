@@ -21,7 +21,7 @@ CFLAGS  += -std=gnu11 -I. -fno-strict-aliasing -fwrapv -Wall \
            -Wno-unused-value -Wno-sometimes-uninitialized -Wno-uninitialized \
            -Wno-incompatible-pointer-types-discards-qualifiers -Wno-strict-prototypes
 
-OBJS = main.o runtime.o video.o platform.o hw.o audio.o manual.o render.o game.o ghost.o
+OBJS = main.o runtime.o video.o platform.o hw.o audio.o manual.o render.o game.o ghost.o sign.o
 DATA = ../resources/Skyroads
 APP  = SkyRoads.app
 

@@ -114,6 +114,10 @@ static int      s_recording;
 static Frame   *s_rec;
 static uint32_t s_nrec, s_caprec;
 static uint32_t s_t;                    /* run clock (ticks) */
+static uint32_t s_finish_t;             /* run clock at the finish, 0 = none */
+static int      s_road;                 /* road of the current run */
+static atomic_uint s_nonce;             /* the relay's number for this run */
+void sky_sign(const char *msg, char hex[65]);   /* sign.c */
 static uint16_t s_last_tick;
 static int      s_first;
 
@@ -257,6 +261,9 @@ void ghost_run_begin(void)
     s_nrec = 0;
     s_t = 0;
     s_first = 1;
+    s_finish_t = 0;
+    s_road = DS16(0x9332);
+    atomic_store(&s_nonce, 0);          /* until the relay sends this run's */
     s_recording = 1;
 }
 
@@ -269,7 +276,14 @@ void ghost_run_end(void)
     s_recording = 0;
     if (s_live) {                               /* live runs are not saved */
 #ifdef __EMSCRIPTEN__
-        MAIN_THREAD_ASYNC_EM_ASM({ Module.skyGhostEnd(); });
+        {   /* signed so the relay can tell the end came from the game */
+            char msg[64], sig[65];
+            snprintf(msg, sizeof msg, "%u|%d|%u|%u", atomic_load(&s_nonce), s_road,
+                     s_t, s_finish_t);
+            sky_sign(msg, sig);
+            MAIN_THREAD_EM_ASM({ Module.skyGhostEnd($0, $1, UTF8ToString($2)); },
+                               s_finish_t, s_t, sig);
+        }
 #endif
         return;
     }
@@ -349,7 +363,13 @@ void ghost_frame(int16_t spr)
     /* run clock: 0x1600 counts game ticks but is reset when the end-of-road
      * animation starts */
     if (s_first) s_first = 0;
-    else s_t += (tick >= s_last_tick) ? (uint16_t)(tick - s_last_tick) : tick;
+    else if (tick >= s_last_tick) s_t += (uint16_t)(tick - s_last_tick);
+    else {
+        /* the end-of-road animation (1000:0f05) restarts the counter: the
+         * road was finished here (for the fastest times) */
+        if (!s_finish_t) s_finish_t = s_t;
+        s_t += tick;
+    }
     s_last_tick = tick;
 
     pz = ((uint32_t)DS16(0x961a) << 16) | DS16(0x9618);
@@ -528,6 +548,12 @@ EMSCRIPTEN_KEEPALIVE void ghost_remote_color(uint32_t id, int color)
     SDL_LockMutex(s_lock);
     remote_get(id)->color = (uint8_t)(color < 0 ? 0 : color);
     SDL_UnlockMutex(s_lock);
+}
+
+/* the relay's number for the current run, included in the signed end */
+EMSCRIPTEN_KEEPALIVE void ghost_set_nonce(uint32_t nonce)
+{
+    atomic_store(&s_nonce, nonce);
 }
 
 /* multiplayer switched on/off in the settings menu (takes effect now) */
