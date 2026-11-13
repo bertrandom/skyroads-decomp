@@ -499,7 +499,37 @@ def main():
     gen_protos.write_header(defs, "protos.h")
     # restore 16-bit integer semantics (needs game.c and protos.h on disk)
     wrap16.main(OUT_C)
+    remap_music(OUT_C)
     print("wrote %s and %s (%d declarations)" % (OUT_C, OUT_H, len(decls)))
+
+
+# The decompiled SKYROADS.EXE is an early release whose MUZAX.LZS has 10
+# songs (intro + 9 road songs) and no menu theme: its menus reuse song 2.
+# The data uses Bluemoon's current MUZAX.LZS (the one their skyroads.zip
+# ships, shared with SkyRoads Xmas Special): 14 songs, 0 intro, 1 menu,
+# 2..13 roads.  Request songs the way that release's SKYROADS.EXE does
+# (menus `push 1`; roads random % 12 + 2), so the music matches it.
+MUSIC_REMAP = [
+    # road start (1000:01b8): random % 9 + 1  ->  random % 12 + 2
+    ("      uVar4 = uVar4 % 9;\n", "      uVar4 = uVar4 % 12;\n", 1),
+    ("        uVar4 = ((uint16_t)(uVar4 + 1)) % 9;\n",
+     "        uVar4 = ((uint16_t)(uVar4 + 1)) % 12;\n", 1),
+    ("      FUN_1000_57c4((uint16_t)(uVar4 + 1));\n",
+     "      FUN_1000_57c4((uint16_t)(uVar4 + 2));\n", 1),
+    # main menu (4e52), road select (5180), Controls sound on (4c20): song 1
+    ("FUN_1000_57c4(2);", "FUN_1000_57c4(1);", 3),
+]
+
+
+def remap_music(path):
+    text = open(path).read()
+    for old, new, count in MUSIC_REMAP:
+        found = text.count(old)
+        if found != count:
+            raise SystemExit("transform.py: music remap expected %d of %r, found %d"
+                             % (count, old, found))
+        text = text.replace(old, new)
+    open(path, "w").write(text)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,15 @@ calls, hardware access) were re-implemented in C from the disassembly.
 The original data files are required (`../resources/Skyroads/*.LZS`, `*.DAT`,
 `*.SND`, `DEMO.REC`).
 
+Music: the decompiled `SKYROADS.EXE` is an early release whose `MUZAX.LZS`
+has 10 songs (intro and 9 road songs) and no menu theme, so its menus reuse
+song 2 (a road song). `resources/Skyroads/MUZAX.LZS` is instead the one in
+Bluemoon's current `skyroads.zip` (shared with SkyRoads Xmas Special): 14
+songs, 0 intro, 1 menu, 2–13 roads. `transform.py` (`MUSIC_REMAP`) makes the
+generated code request songs the way that release's executable does: song 1
+for the main menu, road select and the Controls screen, and `random % 12 + 2`
+for a road, so the music matches the DOS game from Bluemoon's site.
+
 ## Build & run
 
 Requirements: Xcode command line tools, Python 3, SDL2 (`brew install sdl2`).
