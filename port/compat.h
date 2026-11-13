@@ -119,6 +119,15 @@ extern uint8_t g_framebuffer[320 * 200];
 extern uint8_t g_palette[256][3];
 
 void plat_present(void);
+/* ghost.c */
+void ghost_run_begin(void);
+void ghost_run_end(void);
+void ghost_frame(int16_t spr);
+void ghost_publish(const uint8_t *depth);
+#define DEPTH_NONE  255
+#define DEPTH_FLOOR 254
+#define DEPTH_MAX   253
+void ghost_overlay(uint32_t *pixels, int pitch);
 void plat_frame(void);
 void plat_set_palette(int first, int count, const uint8_t *rgb);
 

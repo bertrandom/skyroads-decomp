@@ -42,6 +42,7 @@ Progress (`skyroads.cfg`) is stored in
 | `runtime.c` | DOS file/memory services, LZS decompressor, data loaders, C runtime helpers |
 | `audio.c` | AdLib music player port + OPL2 FM synth, Sound Blaster PCM, PC speaker |
 | `hw.c` | timer interrupt (180 Hz), keyboard interrupt, vsync, mouse/joystick |
+| `ghost.c` | ghost racers: records each run and replays earlier runs of the same road as translucent ships (on by default in the web build, `SKY_GHOSTS=1` natively) |
 | `video.c` | VGA register model, 8×8 font glyph drawing |
 | `platform.c`, `main.c` | SDL window/audio/input, file access, threads |
 

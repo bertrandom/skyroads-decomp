@@ -42,6 +42,17 @@
 
 static uint8_t *T;          /* current TREKDAT segment (DS in the original) */
 static uint8_t *ES;         /* destination for shape drawing               */
+
+/* Per-pixel depth of the road surfaces of the last frame, used to hide
+ * ghosts (ghost.c) behind blocks and tunnels: DEPTH_NONE (sky), DEPTH_FLOOR
+ * (floor tiles: depth follows from the screen line) or (rows ahead of the
+ * ship + 4) * 16 for blocks (middle of their row) and tunnels (front of
+ * their row, so a ghost inside the tunnel is under its roof). */
+static uint8_t s_depth[64000];
+static uint8_t s_shape_depth = DEPTH_NONE;
+static uint8_t s_tunnel_depth = DEPTH_NONE;
+#define DEPTH_PUT(d) do { uint32_t p_ = 0x2800u + (uint16_t)(d); \
+                          if (p_ < sizeof s_depth) s_depth[p_] = s_shape_depth; } while (0)
 static uint16_t si_, di_, bp_;
 static int right_side;      /* e40 = left (3153) / right (3190) drawer     */
 
@@ -64,7 +75,7 @@ static void draw_shape(void)
             if (x == 0xff) break;
             d = (uint16_t)(d - x);
             len = T[si_++]; si_++;
-            while (len--) ES[d++] = col;
+            while (len--) { DEPTH_PUT(d); ES[d++] = col; }
             d = (uint16_t)(line + 0x140);
         }
     } else {
@@ -76,7 +87,7 @@ static void draw_shape(void)
             if (x == 0xff) break;
             d = (uint16_t)(d + x);
             len = T[si_++]; si_++;
-            while (len--) ES[d--] = col;
+            while (len--) { DEPTH_PUT(d); ES[d--] = col; }
             d = (uint16_t)(line + 0x140);
         }
     }
@@ -94,7 +105,16 @@ static void skip_shape(void)
 #define TOPCOL() ((B(0) >> 4) ? (B(0) >> 4) : 0x3d)
 
 /* cell handlers (table at DS:0xbaf) */
-static void cell_floor(void)                     /* 1000:2e6c */
+static void cell_floor_shapes(void);
+static void cell_floor(void)
+{
+    uint8_t solid = s_shape_depth;
+    s_shape_depth = DEPTH_FLOOR;
+    cell_floor_shapes();
+    s_shape_depth = solid;
+}
+
+static void cell_floor_shapes(void)              /* 1000:2e6c */
 {
     uint8_t c = B(0) & 0xf;
     if (!c) return;
@@ -164,15 +184,23 @@ static void cell_tunnel(void)                    /* 1000:3059 */
 
 static void cell_dispatch(void)
 {
+    uint8_t block = s_shape_depth;
     switch (B(1) & 0xf) {
         case 0: cell_floor(); break;
-        case 1: cell_tunnel(); break;
+        case 1: s_shape_depth = s_tunnel_depth; cell_tunnel(); break;
         case 2: cell_half(); break;
-        case 3: cell_half_tunnel(); break;
+        case 3: s_shape_depth = s_tunnel_depth; cell_half_tunnel(); break;
         case 4: cell_full(); break;
-        case 5: cell_full_tunnel(); break;
+        case 5: s_shape_depth = s_tunnel_depth; cell_full_tunnel(); break;
         default: break;
     }
+    s_shape_depth = block;
+}
+
+static uint8_t depth_code(float rows_ahead)
+{
+    float c = (rows_ahead + 4.0f) * 16.0f;
+    return (uint8_t)(c < 0 ? 0 : c > DEPTH_MAX ? DEPTH_MAX : c);
 }
 
 /* ------------------------------------------------------------------ */
@@ -471,6 +499,7 @@ void FUN_1000_2d1f(int x, int pos, int y, int spr_off, int spr_seg,
     R_FULL = (uint16_t)full; R_SHD = (uint16_t)shadow; R_DST = (uint16_t)dst;
 
     update_regions(0);
+    memset(s_depth, DEPTH_NONE, sizeof s_depth);
 
     ES = SEG((uint16_t)(R_DST + 0x280));
     bp_ = (uint16_t)(0x162c + (R_POS >> 3) * 14 + 0x62);
@@ -482,6 +511,16 @@ void FUN_1000_2d1f(int x, int pos, int y, int spr_off, int spr_seg,
         R_SIDE = 0;
         right_side = 0;
         if (R_ROW == 4) { saved_di = di_; di_ = R_PASS ? 0x240 : 0x210; }
+        {   /* front and middle of this row (or of the half row around the
+             * ship), in rows ahead of the ship */
+            float frac = (float)(R_POS & 7) / 8.0f, front, back;
+            if (R_ROW != 4) { front = (float)R_ROW - 4.0f - frac; back = front + 1.0f; }
+            else if (R_PASS) { front = -frac; back = 0.0f; }
+            else { front = 0.0f; back = 1.0f - frac; }
+            s_shape_depth = depth_code((front + back) / 2.0f);
+            /* ghost.c hides a ghost behind surfaces > 0.3 rows nearer */
+            s_tunnel_depth = depth_code(front - 0.3f);
+        }
         do {
             for (R_CELL = 4; R_CELL; R_CELL--) {
                 cell_dispatch();
@@ -505,6 +544,7 @@ void FUN_1000_2d1f(int x, int pos, int y, int spr_off, int spr_seg,
     }
 
     update_regions(1);
+    s_shape_depth = DEPTH_NONE;
     R_OPOS = R_POS;
     DS16(0xe6e) = DS16(0xe6c);
     DS16(0xe72) = DS16(0xe70);
@@ -575,12 +615,15 @@ void FUN_1000_0c98(int param_1)
         int16_t e = v6 ? 0 : FUN_1000_0baf(DS16(0x9336), DS16(0xaf2c));
         si = (int16_t)((FUN_1000_0be9(DS16(0xaf1c)) * 3 + e) * 3 + 0xe + c);
     }
+    ghost_frame(si);
     v8 = FUN_1000_0c26(DS16(0x9618), DS16(0x961a), (uint16_t)(DS16(0xaf1c) - 0x380), v6);
     va = FUN_1000_0c26(DS16(0x9618), DS16(0x961a), (uint16_t)(DS16(0xaf1c) + 0x380), v6);
     if (DS16(0xe1c) == DS16(0x9618) && DS16(0xe1e) == DS16(0x961a) &&
         DS16(0xe20) == DS16(0xaf1c) && DS16(0xe22) == DS16(0xaf2c) &&
-        DS16(0xe24) == (uint16_t)si && DS16(0xe26) == DS16(0x9334))
+        DS16(0xe24) == (uint16_t)si && DS16(0xe26) == DS16(0x9334)) {
+        ghost_publish(NULL);                /* frame unchanged, ghosts moved */
         return;
+    }
     DS16(0xe1c) = DS16(0x9618);
     DS16(0xe1e) = DS16(0x961a);
     DS16(0xe20) = DS16(0xaf1c);
@@ -599,5 +642,6 @@ void FUN_1000_0c98(int param_1)
     p1 = (uint16_t)(DS16(0xaf1c) / 0x80 + DS16(0x3e + FUN_1000_0be9(DS16(0xaf1c)) * 2));
     FUN_1000_2d1f(p1, p2, p3, (uint16_t)(DS16(0xaf34) + si * 0x2d0), DS16(0xaf36),
                   0, p7, p8);
+    ghost_publish(s_depth);
     DS16(0x9334) ^= 1;
 }

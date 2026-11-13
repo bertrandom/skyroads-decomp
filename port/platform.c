@@ -126,6 +126,7 @@ void plat_present(void)
                          ((uint32_t)c[1] << 8) | c[2];
             }
         }
+        ghost_overlay((uint32_t *)pixels, pitch);
         SDL_UnlockTexture(s_texture);
     }
     SDL_SetRenderDrawColor(s_renderer, 0, 0, 0, 255);
@@ -264,6 +265,21 @@ static int frame_step(void)
 }
 
 static atomic_int s_save_dirty;     /* a file was written: persist it */
+
+void plat_save_dirty(void) { atomic_store(&s_save_dirty, 1); }
+
+/* path of a file in the save folder (IndexedDB mount / preferences folder) */
+const char *plat_save_path(const char *file, char *buf, size_t n)
+{
+#ifdef __EMSCRIPTEN__
+    snprintf(buf, n, "/save/%s", file);
+#else
+    char *dir = SDL_GetPrefPath("SkyRoads", "SkyRoads");
+    snprintf(buf, n, "%s%s", dir ? dir : "", file);
+    if (dir) SDL_free(dir);
+#endif
+    return buf;
+}
 
 #ifdef __EMSCRIPTEN__
 static int (*s_game_done)(void);

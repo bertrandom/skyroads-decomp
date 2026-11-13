@@ -214,12 +214,14 @@ void FUN_1000_3b9d(void)
     uint16_t bx = 0xbd2;
     do { DS8(bx) &= 0x7f; } while (DS8(bx++) != 0);
     hw_kbd_isr_install(1);
+    ghost_run_begin();      /* only 1000:2b3d (start of a run) calls this */
 }
 
 /* 1000:3c03  remove the keyboard interrupt */
 void FUN_1000_3c03(void)
 {
     hw_kbd_isr_install(0);
+    ghost_run_end();        /* end of the run started in 1000:2b3d */
 }
 
 /* 1000:6006  wait for vertical retrace */
