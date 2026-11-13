@@ -35,6 +35,7 @@ Progress (`skyroads.cfg`) is stored in
 |------|----------|
 | `transform.py` | turns `../build/skyroads.c` into `game.c`/`game.h` (types, DS memory accesses, K&R definitions, real stack frames, call-site fixups, argument-count normalisation logged to `arity.log`) |
 | `gen_protos.py` | writes `protos.h`: one full prototype per function, derived from the definitions |
+| `wrap16.py` | restores 16-bit integer semantics in `game.c` using Clang's typed AST: 16-bit arithmetic is truncated where 32-bit C would not wrap, mixed-sign comparisons become unsigned |
 | `game.c` | generated game logic (~80 functions) |
 | `manual.c` | blitters, timer/keyboard hooks and other routines whose decompilation lost segment registers |
 | `render.c` | the road/ship renderer (hand written assembly at 1000:2cce–3acb) and its per-frame driver |

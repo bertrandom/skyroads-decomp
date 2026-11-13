@@ -12,6 +12,7 @@ provided by hand in runtime.c / video.c.
 """
 import re
 import gen_protos
+import wrap16
 
 SRC = "../build/skyroads.c"
 OUT_C = "game.c"
@@ -492,12 +493,12 @@ def main():
     defs = gen_protos.scan_files(gen_protos.MANUAL_SOURCES)
     defs.update(gen_protos.scan_text(text))
     text = normalize_arity(text, {k: len(v[1]) for k, v in defs.items()})
-    # 16-bit unsigned additions with a U-suffixed constant must wrap
-    text = re.sub(r"\(([A-Za-z_]\w*) \+ (0x[0-9a-fA-F]+)U\)", r"((uint16_t)(\1 + \2U))", text)
     open(OUT_C, "w").write(text)
     defs = gen_protos.scan_files(gen_protos.MANUAL_SOURCES)
     defs.update(gen_protos.scan_text(text))
     gen_protos.write_header(defs, "protos.h")
+    # restore 16-bit integer semantics (needs game.c and protos.h on disk)
+    wrap16.main(OUT_C)
     print("wrote %s and %s (%d declarations)" % (OUT_C, OUT_H, len(decls)))
 
 

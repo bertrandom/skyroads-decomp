@@ -29,7 +29,7 @@ all: skyroads
 
 MANUAL_SRC = runtime.c manual.c render.c audio.c hw.c video.c
 
-game.c game.h protos.h: ../build/skyroads.c transform.py gen_protos.py $(MANUAL_SRC)
+game.c game.h protos.h: ../build/skyroads.c transform.py gen_protos.py wrap16.py $(MANUAL_SRC)
 	python3 transform.py
 
 regen:
