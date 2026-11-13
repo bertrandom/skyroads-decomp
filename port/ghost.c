@@ -5,8 +5,11 @@
  *  - live (browser build with a relay configured, see web/live-ghosts.js and
  *    server/relay.py): runs other players started on the same road shortly
  *    before you, streamed through a WebSocket relay;
- *  - saved (otherwise): your own earlier runs of the road; the last
- *    GHOST_MAX are kept in ghosts-NN.bin in the save folder.
+ *  - saved (no relay configured, and natively): your own earlier runs of
+ *    the road; the last GHOST_MAX are kept in ghosts-NN.bin in the save
+ *    folder.
+ * With a relay, switching multiplayer off in the settings menu (single
+ * player) shows no ghosts at all.
  *
  * Enabled by default in the browser build; natively with SKY_GHOSTS=1.
  *
@@ -100,7 +103,8 @@ static const uint8_t TINTS[NTINTS][3] = {
 };
 
 static int      s_enabled = -1;
-static int      s_live;                 /* this run uses live ghosts */
+static int      s_live;                 /* a relay is configured (browser) */
+static atomic_int s_multiplayer;        /* ...and multiplayer is switched on */
 static Remote   s_remote[GHOST_MAX];    /* guarded by s_lock */
 static int      s_nremote;
 static int      s_level = -1;           /* road whose ghosts are loaded */
@@ -223,7 +227,17 @@ void ghost_run_begin(void)
     s_recording = 0;
     if (DS16(0x95f6) == 3) { publish(NULL, 0, NULL, NULL); return; }    /* demo */
 #ifdef __EMSCRIPTEN__
-    s_live = MAIN_THREAD_EM_ASM_INT({ return Module.skyGhostStart ? 1 : 0; });
+    {   /* with a relay configured: multiplayer (live ghosts) or, switched off
+         * in the menu, single player (no ghosts); without one: saved runs.
+         * The run is followed either way so multiplayer can be switched on
+         * mid-run (ghost_set_multiplayer). */
+        int mode = MAIN_THREAD_EM_ASM_INT({
+            if (!Module.skyGhostLive) return 0;
+            return Module.skyGhostLive() ? 1 : 2;
+        });
+        s_live = mode != 0;
+        atomic_store(&s_multiplayer, mode == 1);
+    }
 #endif
     if (s_live) {
         SDL_LockMutex(s_lock);
@@ -360,7 +374,7 @@ void ghost_frame(int16_t spr)
     if (!s_live) {
         for (i = 0; i < s_nruns; i++)
             nd += ghost_at(s_runs[i].f, s_runs[i].n, &s_runs[i].cur, pz, TINT_SAVED, &d[nd]);
-    } else {
+    } else if (atomic_load(&s_multiplayer)) {
         SDL_LockMutex(s_lock);
         for (i = 0; i < s_nremote; i++) {
             Remote *r = &s_remote[i];
@@ -508,6 +522,23 @@ EMSCRIPTEN_KEEPALIVE void ghost_remote_color(uint32_t id, int color)
     if (s_enabled <= 0) return;
     SDL_LockMutex(s_lock);
     remote_get(id)->color = (uint8_t)(color < 0 ? 0 : color);
+    SDL_UnlockMutex(s_lock);
+}
+
+/* multiplayer switched on/off in the settings menu (takes effect now) */
+EMSCRIPTEN_KEEPALIVE void ghost_set_multiplayer(int on)
+{
+    atomic_store(&s_multiplayer, on != 0);
+}
+
+/* multiplayer switched off: drop all live ghosts */
+EMSCRIPTEN_KEEPALIVE void ghost_remote_clear(void)
+{
+    int i;
+    if (s_enabled <= 0) return;
+    SDL_LockMutex(s_lock);
+    for (i = 0; i < s_nremote; i++) free(s_remote[i].f);
+    s_nremote = 0;
     SDL_UnlockMutex(s_lock);
 }
 
