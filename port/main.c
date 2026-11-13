@@ -92,17 +92,6 @@ int main(int argc, char **argv)
     g_ds = g_mem + DS_BASE;
 
     find_data_dir();
-#ifdef __EMSCRIPTEN__
-    /* saved progress lives in IndexedDB; load it before the game starts */
-    EM_ASM({
-        FS.mkdir('/save');
-        FS.mount(IDBFS, {}, '/save');
-        FS.syncfs(true, function (err) {
-            if (err) console.warn('could not load saved data', err);
-            Module.skyFsReady = 1;
-        });
-    });
-#endif
     if (plat_init() != 0) return 1;
     hw_start();
     plat_run(game_done, start_game);

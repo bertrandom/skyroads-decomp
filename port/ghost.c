@@ -4,12 +4,11 @@
  * Two sources:
  *  - live (browser build with a relay configured, see web/live-ghosts.js and
  *    server/relay.py): runs other players started on the same road shortly
- *    before you, streamed through a WebSocket relay;
- *  - saved (no relay configured, and natively): your own earlier runs of
- *    the road; the last GHOST_MAX are kept in ghosts-NN.bin in the save
- *    folder.
- * With a relay, switching multiplayer off in the settings menu (single
- * player) shows no ghosts at all.
+ *    before you, streamed through a WebSocket relay.  Switching multiplayer
+ *    off in the settings menu (single player) shows no ghosts; so does a
+ *    browser build without a relay;
+ *  - saved (native builds only): your own earlier runs of the road; the
+ *    last GHOST_MAX are kept in ghosts-NN.bin in the save folder.
  *
  * Enabled by default in the browser build; natively with SKY_GHOSTS=1.
  *
@@ -130,7 +129,6 @@ static Draw     s_pend[GHOST_MAX], s_pend_player;
 static int      s_npend;
 
 const char *plat_save_path(const char *file, char *buf, size_t n);
-void plat_save_dirty(void);
 
 static int enabled(void)
 {
@@ -150,6 +148,7 @@ static int enabled(void)
     return s_enabled;
 }
 
+#ifndef __EMSCRIPTEN__                  /* saved runs: native builds only */
 static void free_runs(void)
 {
     int i;
@@ -206,8 +205,8 @@ static void save_level(void)
         fwrite(s_runs[i].f, sizeof(Frame), s_runs[i].n, fp);
     }
     fclose(fp);
-    plat_save_dirty();
 }
+#endif
 
 static void publish(const Draw *d, int n, const Draw *player, const uint8_t *depth)
 {
@@ -228,14 +227,15 @@ void ghost_run_begin(void)
     if (DS16(0x95f6) == 3) { publish(NULL, 0, NULL, NULL); return; }    /* demo */
 #ifdef __EMSCRIPTEN__
     {   /* with a relay configured: multiplayer (live ghosts) or, switched off
-         * in the menu, single player (no ghosts); without one: saved runs.
+         * in the menu, single player (no ghosts); without one: no ghosts.
          * The run is followed either way so multiplayer can be switched on
          * mid-run (ghost_set_multiplayer). */
         int mode = MAIN_THREAD_EM_ASM_INT({
             if (!Module.skyGhostLive) return 0;
             return Module.skyGhostLive() ? 1 : 2;
         });
-        s_live = mode != 0;
+        if (mode == 0) { publish(NULL, 0, NULL, NULL); return; }
+        s_live = 1;
         atomic_store(&s_multiplayer, mode == 1);
     }
 #endif
@@ -247,9 +247,12 @@ void ghost_run_begin(void)
 #ifdef __EMSCRIPTEN__
         MAIN_THREAD_ASYNC_EM_ASM({ Module.skyGhostStart($0); }, DS16(0x9332));
 #endif
-    } else if ((int)DS16(0x9332) != s_level) {
+    }
+#ifndef __EMSCRIPTEN__
+    else if ((int)DS16(0x9332) != s_level) {
         load_level(DS16(0x9332));
     }
+#endif
     for (i = 0; i < s_nruns; i++) s_runs[i].cur = 0;
     s_nrec = 0;
     s_t = 0;
@@ -270,6 +273,7 @@ void ghost_run_end(void)
 #endif
         return;
     }
+#ifndef __EMSCRIPTEN__
     /* skip runs that are too short or never left the start */
     if (s_nrec < MIN_FRAMES || s_rec[s_nrec - 1].z < s_rec[0].z + 0x10000) return;
     if (s_nruns == GHOST_MAX) {                 /* drop the oldest run */
@@ -284,6 +288,7 @@ void ghost_run_end(void)
     s_runs[s_nruns].cur = 0;
     s_nruns++;
     save_level();
+#endif
 }
 
 /* the player sprite rectangle for a ship at x / height y (see 1000:0c98) */

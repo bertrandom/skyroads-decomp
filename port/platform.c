@@ -264,22 +264,17 @@ static int frame_step(void)
     return 1;
 }
 
-static atomic_int s_save_dirty;     /* a file was written: persist it */
 
-void plat_save_dirty(void) { atomic_store(&s_save_dirty, 1); }
-
-/* path of a file in the save folder (IndexedDB mount / preferences folder) */
+/* path of a file in the save folder (native: the preferences folder) */
+#ifndef __EMSCRIPTEN__
 const char *plat_save_path(const char *file, char *buf, size_t n)
 {
-#ifdef __EMSCRIPTEN__
-    snprintf(buf, n, "/save/%s", file);
-#else
     char *dir = SDL_GetPrefPath("SkyRoads", "SkyRoads");
     snprintf(buf, n, "%s%s", dir ? dir : "", file);
     if (dir) SDL_free(dir);
-#endif
     return buf;
 }
+#endif
 
 #ifdef __EMSCRIPTEN__
 static int (*s_game_done)(void);
@@ -289,14 +284,10 @@ static int s_started;
 static void web_frame(void)
 {
     if (!s_started) {
-        /* wait until the saved files have been loaded from IndexedDB */
-        if (!EM_ASM_INT({ return Module.skyFsReady ? 1 : 0; })) return;
         s_started = 1;
         s_start_game();
         EM_ASM({ if (Module.onGameStarted) Module.onGameStarted(); });
     }
-    if (atomic_exchange(&s_save_dirty, 0))
-        EM_ASM({ FS.syncfs(false, function (err) { if (err) console.warn('save failed', err); }); });
     frame_step();
     if (s_game_done()) {
         snd_pause();
@@ -334,7 +325,74 @@ uint64_t plat_millis(void) { return SDL_GetTicks64(); }
 /* ------------------------------------------------------------------ */
 /* file access (DOS names are case-insensitive)                        */
 /* ------------------------------------------------------------------ */
-struct SkyFile { FILE *fp; int writing; };
+struct SkyFile {
+    FILE  *fp;
+    int    writing;
+    int    cfg;         /* web: skyroads.cfg, kept as separate values */
+    char  *mem;         /* in-memory contents for cfg */
+    size_t memlen;
+};
+
+#ifdef __EMSCRIPTEN__
+/* skyroads.cfg on the web.  The game reads and writes it as one 66-byte
+ * block (DS:4516..4557; format: moddingwiki.shikadi.net/wiki/
+ * SkyRoads_save_game_format):
+ *     u16 checksum   sum of (controls ^ i) for i = 1..32 (the "10 02" header)
+ *     u16 controls   0 keyboard, 1 joystick, 2 mouse
+ *     u16 sound      0 on, otherwise off
+ *     u16 roads[30]  times each road has been completed
+ * The browser keeps the values themselves in localStorage instead of the
+ * file: skyroads.controls ("keyboard" / "joystick" / "mouse"),
+ * skyroads.sound ("on" / "off") and skyroads.roads (JSON array of 30
+ * counts).  Reading the file builds the block from them; writing it stores
+ * them back. */
+#define CFG_SIZE  66
+#define CFG_ROADS 30
+
+static int is_cfg(const char *name) { return strcasecmp(name, "skyroads.cfg") == 0; }
+
+static void put16(uint8_t *b, int v) { b[0] = (uint8_t)v; b[1] = (uint8_t)(v >> 8); }
+static int  get16(const uint8_t *b)  { return b[0] | (b[1] << 8); }
+
+static void cfg_build(uint8_t *b)
+{
+    int v[2 + CFG_ROADS], i, sum = 0;
+    MAIN_THREAD_EM_ASM({
+        function get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+        var p = $0 >> 2;
+        var n = $1;
+        var roads = [];
+        var c = ({ keyboard: 0, joystick: 1, mouse: 2 })[get('skyroads.controls')];
+        HEAP32[p] = c === undefined ? 0 : c;
+        HEAP32[p + 1] = get('skyroads.sound') === 'off' ? 1 : 0;
+        try { roads = JSON.parse(get('skyroads.roads') || '[]'); } catch (e) {}
+        if (!Array.isArray(roads)) roads = [];
+        for (var i = 0; i < n; i++)
+            HEAP32[p + 2 + i] = Math.max(0, Math.min(65535, roads[i] | 0));
+    }, v, CFG_ROADS);
+    for (i = 1; i <= 32; i++) sum += v[0] ^ i;
+    put16(b, sum);
+    for (i = 0; i < 2 + CFG_ROADS; i++) put16(b + 2 + i * 2, v[i]);
+}
+
+static void cfg_store(const uint8_t *b, size_t len)
+{
+    int v[2 + CFG_ROADS], i;
+    if (len != CFG_SIZE) return;
+    for (i = 0; i < 2 + CFG_ROADS; i++) v[i] = get16(b + 2 + i * 2);
+    MAIN_THREAD_EM_ASM({
+        var p = $0 >> 2;
+        var n = $1;
+        var roads = [];
+        for (var i = 0; i < n; i++) roads.push(HEAP32[p + 2 + i]);
+        try {
+            localStorage.setItem('skyroads.controls', ['keyboard', 'joystick', 'mouse'][HEAP32[p]] || 'keyboard');
+            localStorage.setItem('skyroads.sound', HEAP32[p + 1] ? 'off' : 'on');
+            localStorage.setItem('skyroads.roads', JSON.stringify(roads));
+        } catch (e) { console.warn('could not save progress', e); }
+    }, v, CFG_ROADS);
+}
+#endif
 
 static FILE *open_ci(const char *name, const char *mode)
 {
@@ -352,8 +410,7 @@ static FILE *open_ci(const char *name, const char *mode)
 static const char *map_name(const char *name, char *buf, size_t n)
 {
 #ifdef __EMSCRIPTEN__
-    /* /save is an IndexedDB-backed mount (see main.c) */
-    if (strcasecmp(name, "skyroads.cfg") == 0) { snprintf(buf, n, "/save/skyroads.cfg"); return buf; }
+    (void)buf; (void)n;                 /* skyroads.cfg: see cfg_build */
     return name;
 #endif
     if (strcasecmp(name, "skyroads.cfg") == 0) {
@@ -370,6 +427,17 @@ SkyFile *sky_open(const char *name)
     name = map_name(name, pbuf, sizeof pbuf);
     SkyFile *f;
     if (getenv("SKY_DEBUG")) fprintf(stderr, "[open %s]\n", name);
+#ifdef __EMSCRIPTEN__
+    if (is_cfg(name)) {
+        f = (SkyFile *)calloc(1, sizeof(SkyFile));
+        f->cfg = 1;
+        f->mem = (char *)malloc(CFG_SIZE);
+        cfg_build((uint8_t *)f->mem);
+        f->fp = fmemopen(f->mem, CFG_SIZE, "rb");
+        if (!f->fp) { free(f->mem); free(f); return NULL; }
+        return f;
+    }
+#endif
     fp = open_ci(name, "rb");
     if (!fp) return NULL;
     f = (SkyFile *)calloc(1, sizeof(SkyFile));
@@ -379,8 +447,18 @@ SkyFile *sky_open(const char *name)
 SkyFile *sky_create(const char *name)
 {
     char pbuf[1024];
-    FILE *fp = fopen(map_name(name, pbuf, sizeof pbuf), "wb");
+    FILE *fp;
     SkyFile *f;
+#ifdef __EMSCRIPTEN__
+    if (is_cfg(name)) {
+        f = (SkyFile *)calloc(1, sizeof(SkyFile));
+        f->cfg = f->writing = 1;
+        f->fp = open_memstream(&f->mem, &f->memlen);
+        if (!f->fp) { free(f); return NULL; }
+        return f;
+    }
+#endif
+    fp = fopen(map_name(name, pbuf, sizeof pbuf), "wb");
     if (!fp) return NULL;
     f = (SkyFile *)calloc(1, sizeof(SkyFile));
     f->fp = fp;
@@ -400,7 +478,14 @@ void sky_close(SkyFile *f)
 {
     if (!f) return;
     fclose(f->fp);
-    if (f->writing) atomic_store(&s_save_dirty, 1);
+#ifdef __EMSCRIPTEN__
+    if (f->cfg) {
+        if (f->writing) cfg_store((const uint8_t *)f->mem, f->memlen);
+        free(f->mem);
+        free(f);
+        return;
+    }
+#endif
     free(f);
 }
 int sky_eof(SkyFile *f) { return feof(f->fp); }
