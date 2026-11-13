@@ -3,6 +3,11 @@
 #include "compat.h"
 #include "protos.h"
 #include <unistd.h>
+#include <strings.h>
+#include <stdatomic.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 void SDL_Delay(uint32_t ms);
 static void SDL_Delay_hint(void) { SDL_Delay(1); }
 
@@ -448,10 +453,53 @@ uint16_t FUN_1000_5614(int _param_1)
     return (uint16_t)((len / 7) / 2);
 }
 
+/* ------------------------------------------------------------------ */
+/* The game's own sound setting (Controls screen: DS:451a, 0 = on),    */
+/* also switched by the web page's settings menu.                      */
+/* ------------------------------------------------------------------ */
+static int s_want_song = -1;            /* last song the game asked for */
+static atomic_int s_sound_req = -1;     /* from the page: 1 on, 0 off   */
+static int s_in_controls;               /* the Controls screen is showing */
+
+/* Game thread, at frame and key-wait points: finish a change made from the
+ * page the way the Controls screen (1000:4c20) does: restart the music when
+ * sound comes back on (or silence it again if a song started meanwhile) and
+ * save the setting. */
+void sound_poll(void)
+{
+    int on = atomic_exchange(&s_sound_req, -1), controls = s_in_controls;
+    if (on < 0 || !g_ds) return;
+    if (on) {
+        if (DS16(0x451a) == 0 && DS16(0xbf2) == 0xffff && s_want_song >= 0)
+            FUN_1000_57c4(s_want_song);
+    } else if (DS16(0x451a) != 0) {
+        FUN_1000_58a5();
+        DS16(0xbf2) = 0xffff;
+    }
+    FUN_1000_578c();                    /* skyroads.cfg */
+    s_in_controls = controls;           /* (saving it marks leaving Controls) */
+    if (controls) FUN_1000_4afe();      /* Controls screen: move the marks */
+}
+
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_KEEPALIVE int sky_sound_on(void) { return g_ds && DS16(0x451a) == 0; }
+
+/* main thread (settings menu): switch at once, the rest in sound_poll */
+EMSCRIPTEN_KEEPALIVE void sky_set_sound(int on)
+{
+    if (!g_ds || (DS16(0x451a) == 0) == (on != 0)) return;
+    DS16(0x451a) = on ? 0 : 1;
+    if (!on) FUN_1000_58a5();           /* silence now: the player idles */
+    DS16(0xbf2) = 0xffff;               /* no song playing */
+    atomic_store(&s_sound_req, on != 0);
+}
+#endif
+
 void FUN_1000_57c4(int _param_1)
 {
     uint16_t param_1 = (uint16_t)_param_1;
     uint16_t h, off, mid, size;
+    s_want_song = param_1;              /* to resume when sound comes back on */
     if (DS16(0xbf2) == param_1) return;
     FUN_1000_58a5();
     if (DS16(0x451a) != 0) return;
@@ -535,6 +583,13 @@ uint16_t FUN_1000_5c77(uintptr_t name)
 {
     SkyFile *f;
     int h;
+    {   /* the Controls screen (1000:4c20) opens setmenu.lzs and saves
+         * skyroads.cfg when it is left; any other file but the music also
+         * means another screen (see sound_poll) */
+        const char *n = (const char *)near_ptr(name);
+        if (strcasecmp(n, "setmenu.lzs") == 0) s_in_controls = 1;
+        else if (strcasecmp(n, "muzax.lzs") != 0) s_in_controls = 0;
+    }
     if (DOS_ERR) return 0xFFFF;
     f = sky_open((const char *)near_ptr(name));
     if (!f) { DOS_ERR = 2; return 0xFFFF; }
@@ -548,6 +603,8 @@ uint16_t FUN_1000_5c6a(uintptr_t name, int mode)
 {
     SkyFile *f;
     int h;
+    if (strcasecmp((const char *)near_ptr(name), "skyroads.cfg") == 0)
+        s_in_controls = 0;              /* 1000:4c20 saves when it returns */
     if (DOS_ERR) return 0xFFFF;
     f = sky_create((const char *)near_ptr(name));
     if (!f) { DOS_ERR = 3; return 0xFFFF; }
@@ -934,6 +991,7 @@ uint16_t FUN_1000_5feb(void)
     int c, waited = 0;
     static const char *autok;
     while ((c = kb_read_key()) < 0) {
+        sound_poll();
         SDL_Delay_hint();
         /* test hook: SKY_AUTOKEYS="0d,0d,4800" feeds keys to blocking reads */
         if (++waited > 1000 && (autok || (autok = getenv("SKY_AUTOKEYS"))) && *autok) {

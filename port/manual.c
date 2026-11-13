@@ -227,6 +227,7 @@ void FUN_1000_3c03(void)
 /* 1000:6006  wait for vertical retrace */
 void FUN_1000_6006(void)
 {
+    sound_poll();               /* settings change from the web page */
     hw_wait_vsync();
 }
 

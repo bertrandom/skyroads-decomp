@@ -616,6 +616,7 @@ void FUN_1000_0c98(int param_1)
         si = (int16_t)((FUN_1000_0be9(DS16(0xaf1c)) * 3 + e) * 3 + 0xe + c);
     }
     ghost_frame(si);
+    sound_poll();
     v8 = FUN_1000_0c26(DS16(0x9618), DS16(0x961a), (uint16_t)(DS16(0xaf1c) - 0x380), v6);
     va = FUN_1000_0c26(DS16(0x9618), DS16(0x961a), (uint16_t)(DS16(0xaf1c) + 0x380), v6);
     if (DS16(0xe1c) == DS16(0x9618) && DS16(0xe1e) == DS16(0x961a) &&

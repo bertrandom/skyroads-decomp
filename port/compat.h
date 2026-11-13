@@ -119,6 +119,8 @@ extern uint8_t g_framebuffer[320 * 200];
 extern uint8_t g_palette[256][3];
 
 void plat_present(void);
+/* runtime.c: apply a sound on/off request from the web page (game thread) */
+void sound_poll(void);
 /* ghost.c */
 void ghost_run_begin(void);
 void ghost_run_end(void);
