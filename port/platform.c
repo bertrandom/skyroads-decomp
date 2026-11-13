@@ -384,7 +384,15 @@ static void cfg_store(const uint8_t *b, size_t len)
         var p = $0 >> 2;
         var n = $1;
         var roads = [];
+        var before = [];
         for (var i = 0; i < n; i++) roads.push(HEAP32[p + 2 + i]);
+        try { before = JSON.parse(localStorage.getItem('skyroads.roads') || '[]'); } catch (e) {}
+        if (!Array.isArray(before)) before = [];
+        /* the game saves right after counting a finished road (1000:01b8):
+         * tell the page which one, for the statistics */
+        if (Module.skyRoadCompleted)
+            for (var r = 0; r < n; r++)
+                if (roads[r] === (before[r] | 0) + 1) Module.skyRoadCompleted(r);
         try {
             localStorage.setItem('skyroads.controls', ['keyboard', 'joystick', 'mouse'][HEAP32[p]] || 'keyboard');
             localStorage.setItem('skyroads.sound', HEAP32[p + 1] ? 'off' : 'on');
