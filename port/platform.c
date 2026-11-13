@@ -398,6 +398,7 @@ static void cfg_store(const uint8_t *b, size_t len)
             localStorage.setItem('skyroads.sound', HEAP32[p + 1] ? 'off' : 'on');
             localStorage.setItem('skyroads.roads', JSON.stringify(roads));
         } catch (e) { console.warn('could not save progress', e); }
+        if (Module.skySaved) Module.skySaved();     /* account sync (live-ghosts.js) */
     }, v, CFG_ROADS);
 }
 #endif

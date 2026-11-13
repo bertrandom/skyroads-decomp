@@ -460,6 +460,7 @@ uint16_t FUN_1000_5614(int _param_1)
 static int s_want_song = -1;            /* last song the game asked for */
 static atomic_int s_sound_req = -1;     /* from the page: 1 on, 0 off   */
 static int s_in_controls;               /* the Controls screen is showing */
+static atomic_int s_cfg_reload;         /* the page changed the saved values */
 
 /* Game thread, at frame and key-wait points: finish a change made from the
  * page the way the Controls screen (1000:4c20) does: restart the music when
@@ -467,7 +468,25 @@ static int s_in_controls;               /* the Controls screen is showing */
  * save the setting. */
 void sound_poll(void)
 {
-    int on = atomic_exchange(&s_sound_req, -1), controls = s_in_controls;
+    int on, controls = s_in_controls;
+    if (atomic_exchange(&s_cfg_reload, 0) && g_ds) {
+        /* the account sync rewrote the saved settings / road completions:
+         * read them again (1000:5737) and follow a sound change */
+        int was_on = DS16(0x451a) == 0;
+        FUN_1000_5737();
+        s_in_controls = controls;           /* (reading it is not a screen) */
+        if ((DS16(0x451a) == 0) != was_on) {
+            if (DS16(0x451a) == 0) {
+                DS16(0xbf2) = 0xffff;
+                if (s_want_song >= 0) FUN_1000_57c4(s_want_song);
+            } else {
+                FUN_1000_58a5();
+                DS16(0xbf2) = 0xffff;
+            }
+        }
+        if (controls) FUN_1000_4afe();
+    }
+    on = atomic_exchange(&s_sound_req, -1);
     if (on < 0 || !g_ds) return;
     if (on) {
         if (DS16(0x451a) == 0 && DS16(0xbf2) == 0xffff && s_want_song >= 0)
@@ -483,6 +502,9 @@ void sound_poll(void)
 
 #ifdef __EMSCRIPTEN__
 EMSCRIPTEN_KEEPALIVE int sky_sound_on(void) { return g_ds && DS16(0x451a) == 0; }
+
+/* main thread: skyroads.cfg's values (localStorage) changed, re-read them */
+EMSCRIPTEN_KEEPALIVE void sky_reload_cfg(void) { atomic_store(&s_cfg_reload, 1); }
 
 /* main thread (settings menu): switch at once, the rest in sound_poll */
 EMSCRIPTEN_KEEPALIVE void sky_set_sound(int on)
