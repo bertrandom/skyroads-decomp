@@ -273,11 +273,21 @@ static int s_started;
 static void web_frame(void)
 {
     if (!s_started) {
-        /* wait until the saved files have been loaded from IndexedDB */
+        static int announced;
+        /* wait until the saved files have been loaded from IndexedDB ... */
         if (!EM_ASM_INT({ return Module.skyFsReady ? 1 : 0; })) return;
+        if (!announced) {
+            announced = 1;
+            EM_ASM({ if (Module.onReadyToStart) Module.onReadyToStart(); });
+        }
+        /* ... and until the player clicks: the browser only allows audio
+         * after a user gesture, so the intro starts with sound. */
+        if (!EM_ASM_INT({ return Module.skyStartRequested ? 1 : 0; })) {
+            plat_present();
+            return;
+        }
         s_started = 1;
         s_start_game();
-        EM_ASM({ if (Module.onGameStarted) Module.onGameStarted(); });
     }
     if (atomic_exchange(&s_save_dirty, 0))
         EM_ASM({ FS.syncfs(false, function (err) { if (err) console.warn('save failed', err); }); });

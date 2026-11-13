@@ -27,6 +27,7 @@ static int game_done(void) { return atomic_load(&s_game_done); }
 
 static void start_game(void)
 {
+    kb_clear();     /* drop the key that dismissed the start screen */
     SDL_CreateThread(game_thread, "game", NULL);
 }
 
