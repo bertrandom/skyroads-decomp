@@ -203,6 +203,18 @@ static void debug_tick(uint64_t t)
     }
 }
 
+#ifdef __EMSCRIPTEN__
+/* Touch controls on the web page (main thread, like the controller above):
+ * press (down=1) or release (down=0) key 0 up, 1 down, 2 left, 3 right,
+ * 4 space (jump), 5 enter, 6 escape. */
+EMSCRIPTEN_KEEPALIVE void sky_touch_key(int key, int down)
+{
+    static const uint8_t  sc[7]   = { 0x48, 0x50, 0x4b, 0x4d, 0x39, 0x1c, 0x01 };
+    static const uint16_t bios[7] = { 0x4800, 0x5000, 0x4b00, 0x4d00, 0x3920, 0x1c0d, 0x011b };
+    if (key >= 0 && key < 7) hw_scancode_event(sc[key], bios[key], down);
+}
+#endif
+
 /* One main-thread iteration: events, input, presentation.  Returns 0 when
  * the user asked to quit. */
 static int frame_step(void)
