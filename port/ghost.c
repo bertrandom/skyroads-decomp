@@ -1,7 +1,12 @@
 /* Ghost racers: every run of a road is recorded (ship position, height and
- * sprite per frame) and replayed as translucent ghosts on later runs of the
- * same road.  The last GHOST_MAX runs of each road are kept in
- * ghosts-NN.bin in the save folder.
+ * sprite per frame) and replayed as translucent ghosts at the same run time.
+ *
+ * Two sources:
+ *  - live (browser build with a relay configured, see web/live-ghosts.js and
+ *    server/relay.py): runs other players started on the same road shortly
+ *    before you, streamed through a WebSocket relay;
+ *  - saved (otherwise): your own earlier runs of the road; the last
+ *    GHOST_MAX are kept in ghosts-NN.bin in the save folder.
  *
  * Enabled by default in the browser build; natively with SKY_GHOSTS=1.
  *
@@ -28,6 +33,9 @@
 #include "protos.h"
 #include <SDL.h>
 #include <stdatomic.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #define DS16(off) (*(volatile uint16_t *)(g_ds + (uint16_t)(off)))
 #define SEG(s)    (g_mem + ((uint32_t)(uint16_t)(s) << 4))
@@ -59,14 +67,42 @@ typedef struct {
 } Run;
 
 typedef struct {
+    uint32_t id;        /* relay run id */
+    Frame   *f;
+    uint32_t n, cap;
+    uint32_t cur;
+    int      ended;     /* no more frames will arrive */
+    uint8_t  color;     /* tint index from the relay */
+} Remote;
+
+typedef struct {
     float   z;          /* rows ahead of the player (sort key) */
     int16_t x0, y0;     /* top left of the scaled sprite */
     float   scale;
     uint8_t alpha;      /* 0..255 */
+    const uint8_t *tint;/* RGB the ghost is shaded in */
     const uint8_t *spr; /* 29x24 column-major sprite */
 } Draw;
 
+/* ghost tints: your own saved runs, and one per live player (the relay
+ * gives each player shown a different index, COLORS in server/relay.py) */
+static const uint8_t TINT_SAVED[3] = { 170, 215, 255 };
+#define NTINTS 8
+static const uint8_t TINTS[NTINTS][3] = {
+    {  80, 230, 255 },  /* cyan    */
+    { 255, 105, 200 },  /* pink    */
+    { 255, 235,  80 },  /* yellow  */
+    { 110, 255, 120 },  /* green   */
+    { 255, 155,  50 },  /* orange  */
+    { 175, 130, 255 },  /* violet  */
+    { 255,  80,  80 },  /* red     */
+    { 245, 245, 245 },  /* white   */
+};
+
 static int      s_enabled = -1;
+static int      s_live;                 /* this run uses live ghosts */
+static Remote   s_remote[GHOST_MAX];    /* guarded by s_lock */
+static int      s_nremote;
 static int      s_level = -1;           /* road whose ghosts are loaded */
 static Run      s_runs[GHOST_MAX];
 static int      s_nruns;
@@ -186,7 +222,20 @@ void ghost_run_begin(void)
     if (!enabled()) return;
     s_recording = 0;
     if (DS16(0x95f6) == 3) { publish(NULL, 0, NULL, NULL); return; }    /* demo */
-    if ((int)DS16(0x9332) != s_level) load_level(DS16(0x9332));
+#ifdef __EMSCRIPTEN__
+    s_live = MAIN_THREAD_EM_ASM_INT({ return Module.skyGhostStart ? 1 : 0; });
+#endif
+    if (s_live) {
+        SDL_LockMutex(s_lock);
+        for (i = 0; i < s_nremote; i++) free(s_remote[i].f);
+        s_nremote = 0;
+        SDL_UnlockMutex(s_lock);
+#ifdef __EMSCRIPTEN__
+        MAIN_THREAD_ASYNC_EM_ASM({ Module.skyGhostStart($0); }, DS16(0x9332));
+#endif
+    } else if ((int)DS16(0x9332) != s_level) {
+        load_level(DS16(0x9332));
+    }
     for (i = 0; i < s_nruns; i++) s_runs[i].cur = 0;
     s_nrec = 0;
     s_t = 0;
@@ -201,6 +250,12 @@ void ghost_run_end(void)
     publish(NULL, 0, NULL, NULL);
     if (!s_recording) return;
     s_recording = 0;
+    if (s_live) {                               /* live runs are not saved */
+#ifdef __EMSCRIPTEN__
+        MAIN_THREAD_ASYNC_EM_ASM({ Module.skyGhostEnd(); });
+#endif
+        return;
+    }
     /* skip runs that are too short or never left the start */
     if (s_nrec < MIN_FRAMES || s_rec[s_nrec - 1].z < s_rec[0].z + 0x10000) return;
     if (s_nruns == GHOST_MAX) {                 /* drop the oldest run */
@@ -229,6 +284,39 @@ static int cmp_draw(const void *a, const void *b)
 {
     float za = ((const Draw *)a)->z, zb = ((const Draw *)b)->z;
     return za < zb ? 1 : za > zb ? -1 : 0;      /* far first */
+}
+
+/* Where the ghost of run `f` is at the current run time; 0 if not shown
+ * (the run is over, or a live run's frames have not arrived yet). */
+static int ghost_at(const Frame *f, uint32_t n, uint32_t *cur, uint32_t pz,
+                    const uint8_t *tint, Draw *out)
+{
+    const Frame *a, *b;
+    float k, gx, gy, dz, s, left, top, alpha;
+    if (n == 0 || s_t > f[n - 1].t) return 0;       /* finished, or not here yet */
+    while (*cur + 1 < n && f[*cur + 1].t <= s_t) (*cur)++;
+    a = &f[*cur];
+    if (a->t > s_t) return 0;
+    b = (*cur + 1 < n) ? a + 1 : a;
+    if (a->spr < 0) return 0;
+    k = (b->t > a->t) ? (float)(s_t - a->t) / (float)(b->t - a->t) : 0.0f;
+    gx = a->x + ((float)b->x - a->x) * k;
+    gy = a->y + ((float)b->y - a->y) * k;
+    dz = ((float)(int32_t)(a->z - pz) + (float)(int32_t)(b->z - a->z) * k) / 65536.0f;
+    if (dz <= -1.0f || dz >= 9.0f) return 0;
+    s = CAM_DIST / (CAM_DIST + dz);
+    ship_rect((uint16_t)gx, (uint16_t)gy, &left, &top);
+    alpha = 0.55f;
+    if (dz < -0.2f) alpha *= (dz + 1.0f) / 0.8f;           /* passing the camera */
+    if (dz > 7.0f)  alpha *= (9.0f - dz) / 2.0f;            /* past the road's end */
+    out->z = dz;
+    out->scale = s;
+    out->x0 = (int16_t)(VP_X + (left - VP_X) * s + 0.5f);
+    out->y0 = (int16_t)(VP_Y + (top - VP_Y) * s + 0.5f);
+    out->alpha = (uint8_t)(alpha * 255.0f);
+    out->tint = tint;
+    out->spr = SEG(DS16(0xaf36)) + (uint16_t)(DS16(0xaf34) + a->spr * 0x2d0);
+    return 1;
 }
 
 void ghost_frame(int16_t spr)
@@ -262,35 +350,23 @@ void ghost_frame(int16_t spr)
         f->y = DS16(0xaf2c);
         f->spr = spr;
         f->z = pz;
+#ifdef __EMSCRIPTEN__
+        if (s_live)
+            MAIN_THREAD_ASYNC_EM_ASM({ Module.skyGhostFrame($0, $1, $2, $3, $4); },
+                                     f->t, f->x, f->y, f->spr, (double)f->z);
+#endif
     }
 
-    for (i = 0; i < s_nruns; i++) {
-        Run *r = &s_runs[i];
-        const Frame *a, *b;
-        float k, gx, gy, dz, s, left, top, alpha;
-        if (r->n == 0 || s_t > r->f[r->n - 1].t) continue;     /* finished */
-        while (r->cur + 1 < r->n && r->f[r->cur + 1].t <= s_t) r->cur++;
-        a = &r->f[r->cur];
-        if (a->t > s_t) continue;
-        b = (r->cur + 1 < r->n) ? a + 1 : a;
-        if (a->spr < 0) continue;
-        k = (b->t > a->t) ? (float)(s_t - a->t) / (float)(b->t - a->t) : 0.0f;
-        gx = a->x + ((float)b->x - a->x) * k;
-        gy = a->y + ((float)b->y - a->y) * k;
-        dz = ((float)(int32_t)(a->z - pz) + (float)(int32_t)(b->z - a->z) * k) / 65536.0f;
-        if (dz <= -1.0f || dz >= 9.0f) continue;
-        s = CAM_DIST / (CAM_DIST + dz);
-        ship_rect((uint16_t)gx, (uint16_t)gy, &left, &top);
-        alpha = 0.55f;
-        if (dz < -0.2f) alpha *= (dz + 1.0f) / 0.8f;           /* passing the camera */
-        if (dz > 7.0f)  alpha *= (9.0f - dz) / 2.0f;            /* past the road's end */
-        d[nd].z = dz;
-        d[nd].scale = s;
-        d[nd].x0 = (int16_t)(VP_X + (left - VP_X) * s + 0.5f);
-        d[nd].y0 = (int16_t)(VP_Y + (top - VP_Y) * s + 0.5f);
-        d[nd].alpha = (uint8_t)(alpha * 255.0f);
-        d[nd].spr = SEG(DS16(0xaf36)) + (uint16_t)(DS16(0xaf34) + a->spr * 0x2d0);
-        nd++;
+    if (!s_live) {
+        for (i = 0; i < s_nruns; i++)
+            nd += ghost_at(s_runs[i].f, s_runs[i].n, &s_runs[i].cur, pz, TINT_SAVED, &d[nd]);
+    } else {
+        SDL_LockMutex(s_lock);
+        for (i = 0; i < s_nremote; i++) {
+            Remote *r = &s_remote[i];
+            nd += ghost_at(r->f, r->n, &r->cur, pz, TINTS[r->color % NTINTS], &d[nd]);
+        }
+        SDL_UnlockMutex(s_lock);
     }
     qsort(d, (size_t)nd, sizeof(Draw), cmp_draw);
     memset(&player, 0, sizeof player);
@@ -357,8 +433,15 @@ void ghost_overlay(uint32_t *pixels, int pitch)
                 if (g->z > -0.05f && player_at(x, y)) continue;  /* behind the player */
                 if (road_hides(x, y, g->z)) continue;              /* behind a block */
                 c = g_palette[px];
-                /* pale blue-white tint, then blend over the frame */
-                r  = (c[0] + 170u) / 2; gg = (c[1] + 215u) / 2; b = (c[2] + 255u) / 2;
+                /* the ghost's colour, shaded by the sprite's brightness,
+                 * then blended over the frame */
+                {
+                    uint32_t lum = (c[0] * 77u + c[1] * 150u + c[2] * 29u) >> 8;
+                    uint32_t shade = 115u + lum * 140u / 255u;      /* 0..255 */
+                    r  = g->tint[0] * shade / 255u;
+                    gg = g->tint[1] * shade / 255u;
+                    b  = g->tint[2] * shade / 255u;
+                }
                 o = out[x];
                 r  = (r  * a + ((o >> 16) & 0xff) * (255 - a)) / 255;
                 gg = (gg * a + ((o >> 8)  & 0xff) * (255 - a)) / 255;
@@ -369,3 +452,86 @@ void ghost_overlay(uint32_t *pixels, int pitch)
     }
     SDL_UnlockMutex(s_lock);
 }
+
+/* ------------------------------------------------------------------ */
+/* live ghosts: called on the main thread by web/live-ghosts.js        */
+/* ------------------------------------------------------------------ */
+#ifdef __EMSCRIPTEN__
+static Remote *remote_get(uint32_t id)
+{
+    int i;
+    for (i = 0; i < s_nremote; i++)
+        if (s_remote[i].id == id) return &s_remote[i];
+    if (s_nremote == GHOST_MAX) {               /* drop the oldest */
+        free(s_remote[0].f);
+        memmove(s_remote, s_remote + 1, (GHOST_MAX - 1) * sizeof(Remote));
+        s_nremote--;
+    }
+    memset(&s_remote[s_nremote], 0, sizeof(Remote));
+    s_remote[s_nremote].id = id;
+    return &s_remote[s_nremote++];
+}
+
+/* append frames of relay run `id`: `n` packed 12-byte frames at `data` */
+EMSCRIPTEN_KEEPALIVE void ghost_remote_frames(uint32_t id, const uint8_t *data, int n)
+{
+    Remote *r;
+    int i;
+    if (s_enabled <= 0 || n <= 0) return;
+    SDL_LockMutex(s_lock);
+    r = remote_get(id);
+    if (r->n + (uint32_t)n > MAX_FRAMES) n = (int)(MAX_FRAMES - r->n);
+    if (n > 0 && r->n + (uint32_t)n > r->cap) {
+        uint32_t cap = r->cap ? r->cap : 1024;
+        Frame *p;
+        while (cap < r->n + (uint32_t)n) cap *= 2;
+        p = (Frame *)realloc(r->f, cap * sizeof(Frame));
+        if (!p) n = 0;
+        else { r->f = p; r->cap = cap; }
+    }
+    for (i = 0; i < n; i++) {
+        const uint8_t *b = data + i * 12;
+        Frame *f = &r->f[r->n];
+        f->t   = (uint16_t)(b[0] | b[1] << 8);
+        f->x   = (uint16_t)(b[2] | b[3] << 8);
+        f->y   = (uint16_t)(b[4] | b[5] << 8);
+        f->spr = (int16_t)(b[6] | b[7] << 8);
+        f->z   = (uint32_t)b[8] | (uint32_t)b[9] << 8 | (uint32_t)b[10] << 16 | (uint32_t)b[11] << 24;
+        if (r->n && f->t < r->f[r->n - 1].t) continue;  /* keep the run ordered */
+        r->n++;
+    }
+    SDL_UnlockMutex(s_lock);
+}
+
+EMSCRIPTEN_KEEPALIVE void ghost_remote_color(uint32_t id, int color)
+{
+    if (s_enabled <= 0) return;
+    SDL_LockMutex(s_lock);
+    remote_get(id)->color = (uint8_t)(color < 0 ? 0 : color);
+    SDL_UnlockMutex(s_lock);
+}
+
+/* the player of relay run `id` left: stop showing it */
+EMSCRIPTEN_KEEPALIVE void ghost_remote_remove(uint32_t id)
+{
+    int i;
+    if (s_enabled <= 0) return;
+    SDL_LockMutex(s_lock);
+    for (i = 0; i < s_nremote; i++) {
+        if (s_remote[i].id != id) continue;
+        free(s_remote[i].f);
+        memmove(&s_remote[i], &s_remote[i + 1], (size_t)(s_nremote - i - 1) * sizeof(Remote));
+        s_nremote--;
+        break;
+    }
+    SDL_UnlockMutex(s_lock);
+}
+
+EMSCRIPTEN_KEEPALIVE void ghost_remote_end(uint32_t id)
+{
+    if (s_enabled <= 0) return;
+    SDL_LockMutex(s_lock);
+    remote_get(id)->ended = 1;
+    SDL_UnlockMutex(s_lock);
+}
+#endif
