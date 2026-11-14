@@ -21,7 +21,7 @@ CFLAGS  += -std=gnu11 -I. -fno-strict-aliasing -fwrapv -Wall \
            -Wno-unused-value -Wno-sometimes-uninitialized -Wno-uninitialized \
            -Wno-incompatible-pointer-types-discards-qualifiers -Wno-strict-prototypes
 
-OBJS = main.o runtime.o video.o platform.o hw.o audio.o manual.o render.o game.o ghost.o sign.o
+OBJS = main.o runtime.o video.o platform.o hw.o audio.o manual.o render.o game.o ghost.o sign.o opl3.o
 DATA = ../resources/Skyroads
 APP  = SkyRoads.app
 
@@ -42,6 +42,10 @@ image_data.h: ../resources/Skyroads/SKYROADS.EXE gen_image.py
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
 
 game.o: game.c game.h compat.h protos.h
+# Nuked-OPL3 (LGPL-2.1), the AdLib chip emulator
+opl3.o: thirdparty/nuked-opl3/opl3.c thirdparty/nuked-opl3/opl3.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
 main.o: main.c image_data.h compat.h
 runtime.o: runtime.c font8x8.h compat.h
 
@@ -62,4 +66,10 @@ clean:
 	rm -f $(OBJS) skyroads game.c game.h protos.h image_data.h arity.log
 	rm -rf $(APP)
 
-.PHONY: all app clean regen
+.PHONY: test all app clean regen
+
+# Replay the attract demo (DEMO.REC) and check it finishes the demo road:
+# the recorded input only gets there if the decompiled physics and the
+# hand-written runtime behave exactly like the original.
+test: skyroads
+	SKY_DEMO_TEST=1 ./skyroads

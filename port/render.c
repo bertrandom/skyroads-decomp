@@ -17,6 +17,7 @@
  * shape is: colour byte, 16-bit start offset, then (x, length, 0) span
  * triples, terminated by 0xff.  Spans are drawn one screen line apart. */
 #include "compat.h"
+#include <unistd.h>
 #include "protos.h"
 
 #define DS16(off) (*(volatile uint16_t *)(g_ds + (uint16_t)(off)))
@@ -601,6 +602,27 @@ void FUN_1000_0be3(int param_1)
         if (w && !warped && DS16(0x41ce) > (uint16_t)atoi(w) && DS16(0x962a) > 2) {
             DS16(0x962a) = (uint16_t)(DS16(0x41ce) - atoi(w));
             warped = 1;
+        }
+    }
+    {   /* test: SKY_DEMO_TEST=1 replays the attract demo (DEMO.REC, input
+         * recorded by road position) and exits 0 once the ship reaches the
+         * finish row of the demo road, 1 if it is lost on the way
+         * (DS:0x457c end state: 1 crash, 2 burned, 3 fell, 4 fuel, 5 oxygen).
+         * A watchdog in main.c exits 2 if the demo never gets there. */
+        static int armed = -1;
+        if (armed < 0) armed = getenv("SKY_DEMO_TEST") != NULL;
+        if (armed && DS16(0x9602) == 3) {
+            uint32_t z = ((uint32_t)DS16(0x962a) << 16) | DS16(0x9628);
+            uint32_t finish = ((uint32_t)DS16(0x41ce) << 16) - 0x8000;
+            if (DS16(0x457c) != 0) {
+                fprintf(stderr, "demo test: FAIL, ship lost (end state %u) at row %u of %u\n",
+                        DS16(0x457c), DS16(0x962a), DS16(0x41ce));
+                _exit(1);
+            }
+            if (z >= finish) {
+                fprintf(stderr, "demo test: PASS, the demo road was finished (%u rows)\n", DS16(0x41ce));
+                _exit(0);
+            }
         }
     }
     v6 = FUN_1000_0533(DS16(0x9628), DS16(0x962a), DS16(0xaf2c), DS16(0xaf3c));

@@ -25,6 +25,7 @@ Requirements: Xcode command line tools, Python 3, SDL2 (`brew install sdl2`).
     make            # builds ./skyroads
     ./skyroads      # finds ../resources/Skyroads automatically
     make app        # builds SkyRoads.app (data files and SDL bundled inside)
+    make test       # replays the attract demo, see below
 
 The data directory is searched in: `$SKYROADS_DATA`, the current directory,
 `./data`, `./Skyroads`, `resources/Skyroads`, `../resources/Skyroads`, and the
@@ -37,6 +38,17 @@ modes also work.  Alt/Cmd+Enter toggles full screen, Cmd+Q quits.
 Progress (`skyroads.cfg`) is stored in
 `~/Library/Application Support/SkyRoads/SkyRoads/`.
 
+## Test
+
+`make test` runs the game with `SKY_DEMO_TEST=1`: it waits through the intro
+for the attract demo, which replays `DEMO.REC` (input recorded by road
+position), and exits 0 when the ship reaches the finish row of the demo road,
+1 if it is lost on the way (crash, burn, fall, fuel, oxygen), 2 if the demo
+does not finish within 150 s. The recorded input only gets the ship there if
+the physics and collision code behave exactly like the original, so this
+checks the decompiled code together with the hand-written runtime (about 85 s,
+real time; it opens a window).
+
 ## How it works
 
 | file | contents |
@@ -48,7 +60,7 @@ Progress (`skyroads.cfg`) is stored in
 | `manual.c` | blitters, timer/keyboard hooks and other routines whose decompilation lost segment registers |
 | `render.c` | the road/ship renderer (hand written assembly at 1000:2cce–3acb) and its per-frame driver |
 | `runtime.c` | DOS file/memory services, LZS decompressor, data loaders, C runtime helpers |
-| `audio.c` | AdLib music player port + OPL2 FM synth, Sound Blaster PCM, PC speaker |
+| `audio.c` | AdLib music player port, Sound Blaster PCM, PC speaker; the AdLib chip itself is [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 (`thirdparty/nuked-opl3`, LGPL-2.1) |
 | `hw.c` | timer interrupt (180 Hz), keyboard interrupt, vsync, mouse/joystick |
 | `ghost.c` | ghost racers: records each run and replays earlier runs of the same road as translucent ships, or in the web build the live runs of other players through `../server/relay.py` (on by default in the web build, `SKY_GHOSTS=1` natively) |
 | `video.c` | VGA register model, 8×8 font glyph drawing |
@@ -77,4 +89,10 @@ A WebAssembly build of the same code lives in `../web` (see its README).
 ## Limitations
 
 * Only the VGA (mode 13h) code paths are supported; the EGA renderer is not ported.
-* The OPL2 synthesizer is an approximation of the YM3812, not a cycle-exact core.
+
+## Third-party code
+
+`thirdparty/nuked-opl3` is Nuked-OPL3 by Nuke.YKT (upstream commit
+`765ec96`), licensed under the GNU LGPL 2.1 or later (its `LICENSE`); it is
+compiled unmodified into the native and web builds.
+

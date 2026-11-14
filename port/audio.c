@@ -1,8 +1,6 @@
 /* Sound: AdLib (OPL2) music, Sound Blaster digitised effects, PC speaker.
  *
- * - opl_*: a compact software YM3812 (OPL2) good enough for the game's
- *   instruments (2-op FM, ADSR, KSL, feedback, waveforms, tremolo/vibrato,
- *   rhythm mode).
+ * - opl_*: the AdLib chip, emulated by Nuked-OPL3 (thirdparty/nuked-opl3).
  * - mus_*: C port of the game's music player (1000:5876..1000:5a61).  The
  *   timer interrupt calls music_tick() at ~180 Hz like the original.
  * - sb_*: Sound Blaster 8-bit DMA playback (1000:5b1d/5b76/5bc0).
@@ -17,256 +15,36 @@
 #define DS8(off)  (*(volatile uint8_t  *)(g_ds + (uint16_t)(off)))
 
 #define RATE 44100
-#define OPL_CLOCK_RATE 49716.0
 
 static SDL_AudioDeviceID s_dev;
 
 /* ================================================================== */
-/* OPL2 emulation                                                      */
+/* OPL2 emulation: Nuked-OPL3 (thirdparty/nuked-opl3, LGPL-2.1), a       */
+/* cycle-accurate YMF262 model, which runs the game's OPL2 register       */
+/* writes in its OPL2-compatible mode (both outputs carry every channel). */
 /* ================================================================== */
-typedef struct {
-    /* registers */
-    uint8_t am, vib, egt, ksr, mult, ksl, tl, ar, dr, sl, rr, ws;
-    /* state */
-    double phase;          /* cycles */
-    double env;            /* attenuation in dB (0 loud .. 96 silent) */
-    int stage;             /* 0 off, 1 attack, 2 decay, 3 sustain, 4 release */
-    double out1, out2;     /* last outputs (feedback) */
-} Op;
+#include "thirdparty/nuked-opl3/opl3.h"
 
-typedef struct {
-    uint16_t fnum;
-    uint8_t block, keyon, fb, cnt;
-} Chan;
+#define OPL_GAIN 12.0  /* music level as before, relative to the Sound Blaster effects */
+static opl3_chip s_opl;
+static int s_opl_ready;
 
-static Op   s_op[18];
-static Chan s_ch[9];
-static uint8_t s_reg_bd, s_wse;
-static double s_am_phase, s_vib_phase;
-static uint32_t s_noise = 1;
-
-/* operator register offset -> operator index (-1 = none) */
-static const int8_t k_slot[32] = {
-    0, 1, 2, 3, 4, 5, -1, -1, 6, 7, 8, 9, 10, 11, -1, -1,
-    12, 13, 14, 15, 16, 17, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
-/* channel -> modulator / carrier operator index */
-static const int k_mod[9] = { 0, 1, 2, 6, 7, 8, 12, 13, 14 };
-static const int k_car[9] = { 3, 4, 5, 9, 10, 11, 15, 16, 17 };
-static const double k_mult[16] = { 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 12, 12, 15, 15 };
-static const double k_ksl[16] = { 0, 18, 24, 27.75, 30, 32.25, 33.75, 35.25,
-                                  36, 37.5, 38.25, 39, 39.75, 40.5, 41.25, 42 };
-
-static int op_chan(int op)
+static void opl_init(void)
 {
-    int c;
-    for (c = 0; c < 9; c++) if (k_mod[c] == op || k_car[c] == op) return c;
-    return 0;
-}
-
-static void op_keyon(Op *o)
-{
-    if (o->stage == 0 || o->stage == 4) {
-        o->phase = 0;
-        o->stage = 1;
-    }
-}
-
-static void op_keyoff(Op *o)
-{
-    if (o->stage != 0) o->stage = 4;
+    if (!s_opl_ready) { OPL3_Reset(&s_opl, RATE); s_opl_ready = 1; }
 }
 
 static void opl_write(uint8_t reg, uint8_t val)
 {
-    int op;
-    if (reg == 0x01) { s_wse = val & 0x20; return; }
-    if (reg == 0xbd) {
-        uint8_t old = s_reg_bd;
-        s_reg_bd = val;
-        if (val & 0x20) {
-            /* rhythm: BD=ch6 both ops, SD=op16, TOM=op14, CY=op17, HH=op13 */
-            struct { uint8_t bit; int ops[2]; } r[5] = {
-                { 0x10, { 12, 15 } }, { 0x08, { 16, -1 } }, { 0x04, { 14, -1 } },
-                { 0x02, { 17, -1 } }, { 0x01, { 13, -1 } } };
-            int i, k;
-            for (i = 0; i < 5; i++) {
-                int on = (val & r[i].bit) != 0, was = (old & 0x20) && (old & r[i].bit);
-                for (k = 0; k < 2; k++) {
-                    if (r[i].ops[k] < 0) continue;
-                    if (on && !was) op_keyon(&s_op[r[i].ops[k]]);
-                    if (!on && was) op_keyoff(&s_op[r[i].ops[k]]);
-                }
-            }
-        }
-        return;
-    }
-    if (reg >= 0x20 && reg < 0xa0) {
-        op = k_slot[reg & 0x1f];
-        if (op < 0) return;
-        switch (reg & 0xe0) {
-            case 0x20:
-                s_op[op].am = (val >> 7) & 1; s_op[op].vib = (val >> 6) & 1;
-                s_op[op].egt = (val >> 5) & 1; s_op[op].ksr = (val >> 4) & 1;
-                s_op[op].mult = val & 15; break;
-            case 0x40: s_op[op].ksl = val >> 6; s_op[op].tl = val & 0x3f; break;
-            case 0x60: s_op[op].ar = val >> 4; s_op[op].dr = val & 15; break;
-            case 0x80: s_op[op].sl = val >> 4; s_op[op].rr = val & 15; break;
-        }
-        return;
-    }
-    if (reg >= 0xe0 && reg < 0xf6) {
-        op = k_slot[reg & 0x1f];
-        if (op >= 0) s_op[op].ws = val & 3;
-        return;
-    }
-    if (reg >= 0xa0 && reg <= 0xa8) { s_ch[reg - 0xa0].fnum = (uint16_t)((s_ch[reg - 0xa0].fnum & 0x300) | val); return; }
-    if (reg >= 0xb0 && reg <= 0xb8) {
-        Chan *c = &s_ch[reg - 0xb0];
-        int on = (val >> 5) & 1, ch = reg - 0xb0;
-        c->fnum = (uint16_t)((c->fnum & 0xff) | ((val & 3) << 8));
-        c->block = (val >> 2) & 7;
-        if (on && !c->keyon) { op_keyon(&s_op[k_mod[ch]]); op_keyon(&s_op[k_car[ch]]); }
-        if (!on && c->keyon) { op_keyoff(&s_op[k_mod[ch]]); op_keyoff(&s_op[k_car[ch]]); }
-        c->keyon = (uint8_t)on;
-        return;
-    }
-    if (reg >= 0xc0 && reg <= 0xc8) {
-        s_ch[reg - 0xc0].fb = (val >> 1) & 7;
-        s_ch[reg - 0xc0].cnt = val & 1;
-    }
-}
-
-/* time (seconds) for a full 96 dB decay at effective rate */
-static double eg_step(int rate4, double full_time_s)
-{
-    double t;
-    if (rate4 < 4) return 0;
-    if (rate4 > 60) rate4 = 60;
-    t = full_time_s / pow(2.0, (rate4 - 4) / 4.0);
-    return 96.0 / (t * RATE);
-}
-
-static void op_envelope(Op *o, const Chan *c)
-{
-    int rof = (c->block << 1) | ((c->fnum >> 9) & 1);
-    if (!o->ksr) rof >>= 2;
-    switch (o->stage) {
-        case 1: {
-            double step;
-            if (o->ar == 15) { o->env = 0; o->stage = 2; break; }
-            step = eg_step(o->ar * 4 + rof, 2.826 * 1.0);
-            if (step == 0) break;
-            /* exponential attack */
-            o->env -= step * (1.0 + o->env / 12.0);
-            if (o->env <= 0) { o->env = 0; o->stage = 2; }
-            break;
-        }
-        case 2: {
-            double sl = (o->sl == 15) ? 93.0 : o->sl * 3.0;
-            o->env += eg_step(o->dr * 4 + rof, 39.28);
-            if (o->env >= sl) { o->env = sl; o->stage = 3; }
-            break;
-        }
-        case 3:
-            if (!o->egt) o->env += eg_step(o->rr * 4 + rof, 39.28);
-            break;
-        case 4:
-            o->env += eg_step(o->rr * 4 + rof, 39.28);
-            break;
-        default: break;
-    }
-    if (o->env >= 96.0) { o->env = 96.0; if (o->stage >= 3) o->stage = 0; }
-}
-
-static double wave(int ws, double ph)
-{
-    double s;
-    ph -= floor(ph);
-    s = sin(ph * 2.0 * M_PI);
-    if (!s_wse) return s;
-    switch (ws) {
-        case 1: return s > 0 ? s : 0;
-        case 2: return fabs(s);
-        case 3: return (fmod(ph, 0.5) < 0.25) ? fabs(s) : 0;
-        default: return s;
-    }
-}
-
-static double op_level(const Op *o, const Chan *c, double am)
-{
-    double att = o->env + o->tl * 0.75;
-    if (o->ksl) {
-        double k = k_ksl[c->fnum >> 6] - 6.0 * (7 - c->block);
-        if (k > 0) att += k * (o->ksl == 1 ? 0.5 : o->ksl == 2 ? 0.25 : 1.0);
-    }
-    if (o->am) att += am;
-    if (att >= 96.0) return 0;
-    return pow(10.0, -att / 20.0);
-}
-
-static double op_freq(const Op *o, const Chan *c, double vib)
-{
-    double f = c->fnum * OPL_CLOCK_RATE / (double)(1 << (20 - c->block)) * k_mult[o->mult];
-    if (o->vib) f *= vib;
-    return f;
-}
-
-static double op_run(Op *o, const Chan *c, double mod, double am, double vib)
-{
-    double lvl, out;
-    op_envelope(o, c);
-    if (o->stage == 0) { o->out2 = o->out1; o->out1 = 0; return 0; }
-    lvl = op_level(o, c, am);
-    out = wave(o->ws, o->phase + mod) * lvl;
-    o->phase += op_freq(o, c, vib) / RATE;
-    if (o->phase > 1e6) o->phase -= floor(o->phase);
-    o->out2 = o->out1;
-    o->out1 = out;
-    return out;
+    opl_init();
+    OPL3_WriteReg(&s_opl, reg, val);
 }
 
 static double opl_sample(void)
 {
-    double am, vib, sum = 0;
-    int ch, rhythm = (s_reg_bd & 0x20) != 0;
-    s_am_phase += 3.7 / RATE;
-    s_vib_phase += 6.1 / RATE;
-    am = (1.0 + sin(s_am_phase * 2 * M_PI)) * 0.5 * ((s_reg_bd & 0x80) ? 4.8 : 1.0);
-    vib = pow(2.0, sin(s_vib_phase * 2 * M_PI) * ((s_reg_bd & 0x40) ? 14.0 : 7.0) / 1200.0);
-    s_noise = (s_noise >> 1) ^ ((s_noise & 1) ? 0x400181 : 0);
-
-    for (ch = 0; ch < 9; ch++) {
-        Chan *c = &s_ch[ch];
-        Op *m = &s_op[k_mod[ch]], *k = &s_op[k_car[ch]];
-        double fb, mo;
-        if (rhythm && ch >= 6) continue;
-        fb = c->fb ? (m->out1 + m->out2) * 0.5 * pow(2.0, c->fb - 7) * 2.0 : 0;
-        mo = op_run(m, c, fb, am, vib);
-        if (c->cnt) sum += mo + op_run(k, c, 0, am, vib);
-        else sum += op_run(k, c, mo * 4.0, am, vib);
-    }
-    if (rhythm) {
-        Chan *c6 = &s_ch[6], *c7 = &s_ch[7], *c8 = &s_ch[8];
-        Op *bdm = &s_op[12], *bdc = &s_op[15];
-        double fb = c6->fb ? (bdm->out1 + bdm->out2) * 0.5 * pow(2.0, c6->fb - 7) * 2.0 : 0;
-        double mo = op_run(bdm, c6, fb, am, vib);
-        double noise = (s_noise & 1) ? 1.0 : -1.0;
-        sum += 2.0 * (c6->cnt ? op_run(bdc, c6, 0, am, vib) : op_run(bdc, c6, mo * 4.0, am, vib));
-        /* hi-hat (op13) and snare (op16) on channel 7, tom (op14) and cymbal (op17) on 8 */
-        {
-            Op *hh = &s_op[13], *sd = &s_op[16], *tt = &s_op[14], *cy = &s_op[17];
-            double h = op_run(hh, c7, 0, am, vib);
-            double s = op_run(sd, c7, 0, am, vib);
-            double t = op_run(tt, c8, 0, am, vib);
-            double y = op_run(cy, c8, 0, am, vib);
-            /* replace tonal output with noisier versions, keeping envelopes */
-            if (hh->stage) h = (h > 0 ? 1 : -1) * fabs(h) * 0.5 + noise * op_level(hh, c7, am) * 0.5;
-            if (sd->stage) s = s * 0.5 + noise * op_level(sd, c7, am) * 0.5;
-            if (cy->stage) y = (y > 0 ? 1.0 : -1.0) * op_level(cy, c8, am) * 0.7;
-            sum += 2.0 * (h + s + t + y);
-        }
-    }
-    return sum;
+    int16_t lr[2];
+    OPL3_GenerateResampled(&s_opl, lr);  /* 49716 Hz chip -> RATE */
+    return (lr[0] + lr[1]) / 65536.0 * OPL_GAIN;
 }
 
 /* ================================================================== */
@@ -360,6 +138,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
 void snd_init(void)
 {
     SDL_AudioSpec want, have;
+    opl_init();
     SDL_zero(want);
     want.freq = RATE;
     want.format = AUDIO_S16SYS;

@@ -2,6 +2,7 @@
 #include "compat.h"
 #include "image_data.h"
 #include <unistd.h>
+#include <signal.h>
 #include <stdatomic.h>
 #include <SDL.h>
 #ifdef __EMSCRIPTEN__
@@ -74,6 +75,13 @@ done:
     if (base) SDL_free(base);
 }
 
+static void demo_test_timeout(int sig)
+{
+    (void)sig;
+    fprintf(stderr, "demo test: FAIL, the demo did not finish in time\n");
+    _exit(2);
+}
+
 int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -92,6 +100,12 @@ int main(int argc, char **argv)
     g_ds = g_mem + DS_BASE;
 
     find_data_dir();
+    if (getenv("SKY_DEMO_TEST")) {
+        /* demo test watchdog: the intro and credits take ~35 s, the demo
+         * road ~30 s; render.c exits 0/1 when the demo ends */
+        signal(SIGALRM, demo_test_timeout);
+        alarm(150);
+    }
     if (plat_init() != 0) return 1;
     hw_start();
     plat_run(game_done, start_game);
