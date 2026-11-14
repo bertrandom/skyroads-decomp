@@ -215,6 +215,7 @@ void FUN_1000_3b81(void)
     do { DS8(bx) &= 0x7f; } while (DS8(bx++) != 0);
     hw_kbd_isr_install(1);
     ghost_run_begin();      /* only 1000:2b21 (start of a run) calls this */
+    plat_in_run(1);          /* widescreen margins show the backdrop */
 }
 
 /* 1000:3be7  remove the keyboard interrupt */
@@ -222,6 +223,7 @@ void FUN_1000_3be7(void)
 {
     hw_kbd_isr_install(0);
     ghost_run_end();        /* end of the run started in 1000:2b21 */
+    plat_in_run(0);
 }
 
 /* 1000:5fc8  wait for vertical retrace */

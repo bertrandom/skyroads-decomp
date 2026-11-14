@@ -8,6 +8,8 @@
 #endif
 #include <strings.h>
 
+#define DS16(off) (*(volatile uint16_t *)(g_ds + (uint16_t)(off)))
+
 void hw_key_event(const SDL_KeyboardEvent *k, int down);
 void hw_vsync_signal(void);
 void hw_mouse_motion(int dx, int dy);
@@ -57,6 +59,22 @@ static SDL_Renderer *s_renderer;
 static SDL_Texture  *s_texture;
 static int           s_scale = 3;
 
+/* Widescreen (16:9): the original 320x200 frame in the middle, with MARGIN
+ * columns either side.  During a run the margins show the world's backdrop
+ * (sky above, dashboard below) carried on past the frame's edges, mirrored;
+ * elsewhere (menus, intro) they are black.  The road itself is not drawn
+ * there, so it ends at the old edges.  Natively: SKY_WIDE=1, or Cmd/Alt+W. */
+#define MARGIN 53                       /* 320 + 2*53 = 426 ~ 200 * 1.2 * 16/9 */
+#define WIDE_W (320 + 2 * MARGIN)
+static int s_wide, s_wide_shown = -1;
+static atomic_int s_in_run;
+
+void plat_in_run(int on) { atomic_store(&s_in_run, on); }
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_KEEPALIVE
+#endif
+void plat_set_wide(int on) { s_wide = on != 0; }
+
 int plat_init(void)
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
@@ -81,7 +99,8 @@ int plat_init(void)
     /* 320x200 with 4:3 aspect ratio correction (pixels are 1.2x tall) */
     SDL_RenderSetLogicalSize(s_renderer, 320, 240);
     s_texture = SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888,
-                                  SDL_TEXTUREACCESS_STREAMING, 320, 200);
+                                  SDL_TEXTUREACCESS_STREAMING, WIDE_W, 200);
+    { const char *w = getenv("SKY_WIDE"); s_wide = w && *w && *w != '0'; }
     if (!s_texture) {
         fprintf(stderr, "texture: %s\n", SDL_GetError());
         return -1;
@@ -111,27 +130,68 @@ void plat_set_palette(int first, int count, const uint8_t *rgb)
     }
 }
 
+static inline uint32_t rgb(uint8_t i)
+{
+    const uint8_t *c = g_palette[i];
+    return 0xFF000000u | ((uint32_t)c[0] << 16) | ((uint32_t)c[1] << 8) | c[2];
+}
+
+/* the side margins: the run's backdrop (DS:0x517e, the clean 320x200 picture
+ * the renderer restores the road area from) mirrored at the frame's edges */
+static void draw_margins(uint32_t *pixels, int pitch)
+{
+    const uint8_t *bg = NULL;
+    int x, y;
+    if (atomic_load(&s_in_run) && DS16(0x517e)) bg = g_mem + ((uint32_t)DS16(0x517e) << 4);
+    for (y = 0; y < 200; y++) {
+        uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);
+        const uint8_t *row = bg ? bg + y * 320 : NULL;
+        for (x = 0; x < MARGIN; x++) {
+            out[MARGIN - 1 - x]   = row ? rgb(row[x]) : 0xFF000000u;
+            out[MARGIN + 320 + x] = row ? rgb(row[319 - x]) : 0xFF000000u;
+        }
+    }
+}
+
+static uint32_t s_shown[WIDE_W * 200];  /* the last frame, for SKY_SHOT */
+
 void plat_present(void)
 {
     void *pixels;
     int pitch;
-    if (SDL_LockTexture(s_texture, NULL, &pixels, &pitch) == 0) {
-        const uint8_t *fb = g_mem + VGA_BASE;
-        for (int y = 0; y < 200; y++) {
-            uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);
-            const uint8_t *src = fb + y * 320;
-            for (int x = 0; x < 320; x++) {
-                const uint8_t *c = g_palette[src[x]];
-                out[x] = 0xFF000000u | ((uint32_t)c[0] << 16) |
-                         ((uint32_t)c[1] << 8) | c[2];
-            }
+    int w = s_wide ? WIDE_W : 320, left = s_wide ? MARGIN : 0;
+    SDL_Rect area = { 0, 0, w, 200 };
+    if (s_wide != s_wide_shown) {
+        s_wide_shown = s_wide;
+        SDL_RenderSetLogicalSize(s_renderer, w, 240);
+#ifndef __EMSCRIPTEN__
+        if (!(SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN_DESKTOP)) {
+            int ww, wh;
+            SDL_GetWindowSize(s_window, &ww, &wh);
+            SDL_SetWindowSize(s_window, wh * w / 240, wh);
         }
-        ghost_overlay((uint32_t *)pixels, pitch);
+#else
+        SDL_SetWindowSize(s_window, w * s_scale, 240 * s_scale);  /* the canvas */
+        EM_ASM({ if (window.skyWideChanged) window.skyWideChanged($0); }, s_wide);
+#endif
+    }
+    if (SDL_LockTexture(s_texture, &area, &pixels, &pitch) == 0) {
+        const uint8_t *fb = g_mem + VGA_BASE;
+        uint32_t *frame = (uint32_t *)pixels + left;
+        for (int y = 0; y < 200; y++) {
+            uint32_t *out = (uint32_t *)((uint8_t *)frame + y * pitch);
+            const uint8_t *src = fb + y * 320;
+            for (int x = 0; x < 320; x++) out[x] = rgb(src[x]);
+        }
+        ghost_overlay(frame, pitch);
+        if (s_wide) draw_margins((uint32_t *)pixels, pitch);
+        for (int y = 0; y < 200; y++)
+            memcpy(s_shown + y * w, (uint8_t *)pixels + y * pitch, (size_t)w * 4);
         SDL_UnlockTexture(s_texture);
     }
     SDL_SetRenderDrawColor(s_renderer, 0, 0, 0, 255);
     SDL_RenderClear(s_renderer);
-    SDL_RenderCopy(s_renderer, s_texture, NULL, NULL);
+    SDL_RenderCopy(s_renderer, s_texture, &area, NULL);
     SDL_RenderPresent(s_renderer);
 }
 
@@ -144,9 +204,18 @@ int  plat_pump_events(void) { return 1; }
 static void save_shot(const char *dir, int n)
 {
     char path[512];
-    SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, 320, 200, 8, SDL_PIXELFORMAT_INDEX8);
+    SDL_Surface *s;
     SDL_Color cols[256];
     int i, y;
+    if (s_wide) {                       /* the whole widescreen frame as shown */
+        s = SDL_CreateRGBSurfaceWithFormatFrom(s_shown, WIDE_W, 200, 32, WIDE_W * 4,
+                                               SDL_PIXELFORMAT_ARGB8888);
+        snprintf(path, sizeof(path), "%s/shot%03d.bmp", dir, n);
+        SDL_SaveBMP(s, path);
+        SDL_FreeSurface(s);
+        return;
+    }
+    s = SDL_CreateRGBSurfaceWithFormat(0, 320, 200, 8, SDL_PIXELFORMAT_INDEX8);
     for (i = 0; i < 256; i++) {
         cols[i].r = g_palette[i][0]; cols[i].g = g_palette[i][1];
         cols[i].b = g_palette[i][2]; cols[i].a = 255;
@@ -234,6 +303,10 @@ static int frame_step(void)
 #ifndef __EMSCRIPTEN__
                 if (e.key.keysym.sym == SDLK_q && (e.key.keysym.mod & KMOD_GUI))
                     return 0;
+                if (e.key.keysym.sym == SDLK_w && (e.key.keysym.mod & (KMOD_ALT | KMOD_GUI))) {
+                    s_wide = !s_wide;
+                    break;
+                }
 #endif
                 hw_key_event(&e.key, 1);
                 break;
