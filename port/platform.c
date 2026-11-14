@@ -60,14 +60,28 @@ static SDL_Texture  *s_texture;
 static int           s_scale = 3;
 
 /* Widescreen (16:9): the original 320x200 frame in the middle, with MARGIN
- * columns either side.  During a run the margins show the world's backdrop
- * (sky above, dashboard below) carried on past the frame's edges, mirrored;
- * elsewhere (menus, intro) they are black.  The road itself is not drawn
- * there, so it ends at the old edges.  Natively: SKY_WIDE=1, or Cmd/Alt+W. */
+ * columns either side.  During a run the margins show the road's backdrop
+ * painted out to 16:9 (wide_bg.h, from backgrounds-16x9/filled), or for a
+ * road without one, the backdrop and dashboard mirrored past the frame's
+ * edges; elsewhere (menus, intro) they are black.  The road itself is not
+ * drawn there, so it ends at the old edges.  Natively: SKY_WIDE=1, or
+ * Cmd/Alt+W. */
 #define MARGIN 53                       /* 320 + 2*53 = 426 ~ 200 * 1.2 * 16/9 */
 #define WIDE_W (320 + 2 * MARGIN)
 static int s_wide, s_wide_shown = -1;
 static atomic_int s_in_run;
+static atomic_int s_world = -1;         /* the road's backdrop, WORLDn.LZS */
+
+#include "wide_bg.h"
+_Static_assert(WIDE_BG_MARGIN == MARGIN, "wide_bg.h margin");
+
+/* runtime.c: a file was opened (the backdrop is WORLDn.LZS) */
+void plat_file_opened(const char *name)
+{
+    if (strncasecmp(name, "world", 5) == 0 && name[5] >= '0' && name[5] <= '9' &&
+        strcasecmp(name + 6, ".lzs") == 0)
+        atomic_store(&s_world, name[5] - '0');
+}
 
 void plat_in_run(int on) { atomic_store(&s_in_run, on); }
 #ifdef __EMSCRIPTEN__
@@ -141,7 +155,19 @@ static inline uint32_t rgb(uint8_t i)
 static void draw_margins(uint32_t *pixels, int pitch)
 {
     const uint8_t *bg = NULL;
-    int x, y;
+    int x, y, world = atomic_load(&s_world);
+    if (atomic_load(&s_in_run) && world >= 0 && wide_bg_have[world]) {
+        for (y = 0; y < 200; y++) {
+            uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);
+            const unsigned char (*m)[3] = wide_bg[world][y];
+            for (x = 0; x < MARGIN; x++) {
+                out[x] = 0xFF000000u | (uint32_t)m[x][0] << 16 | (uint32_t)m[x][1] << 8 | m[x][2];
+                out[MARGIN + 320 + x] = 0xFF000000u | (uint32_t)m[MARGIN + x][0] << 16 |
+                                        (uint32_t)m[MARGIN + x][1] << 8 | m[MARGIN + x][2];
+            }
+        }
+        return;
+    }
     if (atomic_load(&s_in_run) && DS16(0x517e)) bg = g_mem + ((uint32_t)DS16(0x517e) << 4);
     for (y = 0; y < 200; y++) {
         uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);

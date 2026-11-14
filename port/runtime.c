@@ -609,6 +609,7 @@ uint16_t FUN_1000_5c38(uintptr_t name)
         const char *n = (const char *)near_ptr(name);
         if (strcasecmp(n, "setmenu.lzs") == 0) s_in_controls = 1;
         else if (strcasecmp(n, "muzax.lzs") != 0) s_in_controls = 0;
+        plat_file_opened(n);            /* widescreen: which road backdrop */
     }
     if (DOS_ERR) return 0xFFFF;
     f = sky_open((const char *)near_ptr(name));

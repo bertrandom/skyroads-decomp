@@ -121,6 +121,7 @@ extern uint8_t g_palette[256][3];
 void plat_present(void);
 void plat_in_run(int on);                /* a run is under way (widescreen margins) */
 void plat_set_wide(int on);
+void plat_file_opened(const char *name);
 /* runtime.c: apply a sound on/off request from the web page (game thread) */
 void sound_poll(void);
 /* ghost.c */

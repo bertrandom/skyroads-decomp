@@ -38,6 +38,12 @@ regen:
 image_data.h: ../resources/Skyroads/SKYROADS.EXE gen_image.py
 	python3 gen_image.py ../resources/Skyroads/SKYROADS.EXE image_data.h
 
+# widescreen margins painted for each road (../backgrounds-16x9/filled)
+WIDE_BG_DIR = ../backgrounds-16x9/filled
+wide_bg.h: gen_wide_bg.py $(wildcard $(WIDE_BG_DIR)/*.png)
+	python3 gen_wide_bg.py $(WIDE_BG_DIR) wide_bg.h
+platform.o: platform.c wide_bg.h compat.h
+
 %.o: %.c compat.h protos.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
 
@@ -63,7 +69,7 @@ app: skyroads
 	@echo "built $(APP)"
 
 clean:
-	rm -f $(OBJS) skyroads game.c game.h protos.h image_data.h arity.log
+	rm -f $(OBJS) skyroads game.c game.h protos.h image_data.h wide_bg.h arity.log
 	rm -rf $(APP)
 
 .PHONY: test all app clean regen
