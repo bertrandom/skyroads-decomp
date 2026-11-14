@@ -13,10 +13,10 @@
  * Enabled by default in the browser build; natively with SKY_GHOSTS=1.
  *
  * Hooks (all on the game thread):
- *   ghost_run_begin()  1000:3b9d, called by 1000:2b3d before a run
- *   ghost_frame()      1000:0c98, once per rendered frame of a run
- *   ghost_run_end()    1000:3c03, called by 1000:2b3d after a run
- *   ghost_publish()    1000:0c98, after the frame is rendered
+ *   ghost_run_begin()  1000:3b81, called by 1000:2b21 before a run
+ *   ghost_frame()      1000:0be3, once per rendered frame of a run
+ *   ghost_run_end()    1000:3be7, called by 1000:2b21 after a run
+ *   ghost_publish()    1000:0be3, after the frame is rendered
  * The main thread draws the current ghosts over the frame in plat_present.
  * Ghost pixels are hidden where the renderer drew a surface nearer than the
  * ghost (per-pixel road depth from render.c): block faces and tunnels by the
@@ -57,7 +57,7 @@
 
 typedef struct {
     uint16_t t;         /* game ticks since the start of the run */
-    uint16_t x, y;      /* 0xaf1c, 0xaf2c */
+    uint16_t x, y;      /* 0xaf2c, 0xaf3c */
     int16_t  spr;       /* sprite index, -1 = not drawn */
     uint32_t z;         /* road position, 16.16 rows */
 } Frame;
@@ -228,7 +228,7 @@ void ghost_run_begin(void)
     int i;
     if (!enabled()) return;
     s_recording = 0;
-    if (DS16(0x95f6) == 3) { publish(NULL, 0, NULL, NULL); return; }    /* demo */
+    if (DS16(0x9602) == 3) { publish(NULL, 0, NULL, NULL); return; }    /* demo */
 #ifdef __EMSCRIPTEN__
     {   /* with a relay configured: multiplayer (live ghosts) or, switched off
          * in the menu, single player (no ghosts); without one: no ghosts.
@@ -249,12 +249,12 @@ void ghost_run_begin(void)
         s_nremote = 0;
         SDL_UnlockMutex(s_lock);
 #ifdef __EMSCRIPTEN__
-        MAIN_THREAD_ASYNC_EM_ASM({ Module.skyGhostStart($0); }, DS16(0x9332));
+        MAIN_THREAD_ASYNC_EM_ASM({ Module.skyGhostStart($0); }, DS16(0x933e));
 #endif
     }
 #ifndef __EMSCRIPTEN__
-    else if ((int)DS16(0x9332) != s_level) {
-        load_level(DS16(0x9332));
+    else if ((int)DS16(0x933e) != s_level) {
+        load_level(DS16(0x933e));
     }
 #endif
     for (i = 0; i < s_nruns; i++) s_runs[i].cur = 0;
@@ -262,7 +262,7 @@ void ghost_run_begin(void)
     s_t = 0;
     s_first = 1;
     s_finish_t = 0;
-    s_road = DS16(0x9332);
+    s_road = DS16(0x933e);
     atomic_store(&s_nonce, 0);          /* until the relay sends this run's */
     s_recording = 1;
 }
@@ -305,11 +305,11 @@ void ghost_run_end(void)
 #endif
 }
 
-/* the player sprite rectangle for a ship at x / height y (see 1000:0c98) */
+/* the player sprite rectangle for a ship at x / height y (see 1000:0be3) */
 static void ship_rect(uint16_t x, uint16_t y, float *left, float *top)
 {
-    int16_t lane = FUN_1000_0be9(x);
-    *left = (float)(x / 0x80 + (int16_t)DS16(0x3e + lane * 2) - 0x6e);
+    int16_t lane = FUN_1000_0b34(x);
+    *left = (float)(x / 0x80 + (int16_t)DS16(0x38 + lane * 2) - 0x6e);
     *top  = (float)(0x9d - y / 0x80);
 }
 
@@ -348,7 +348,7 @@ static int ghost_at(const Frame *f, uint32_t n, uint32_t *cur, uint32_t pz,
     out->y0 = (int16_t)(VP_Y + (top - VP_Y) * s + 0.5f);
     out->alpha = (uint8_t)(alpha * 255.0f);
     out->tint = tint;
-    out->spr = SEG(DS16(0xaf36)) + (uint16_t)(DS16(0xaf34) + a->spr * 0x2d0);
+    out->spr = SEG(DS16(0xaf46)) + (uint16_t)(DS16(0xaf44) + a->spr * 0x2d0);
     return 1;
 }
 
@@ -356,23 +356,23 @@ void ghost_frame(int16_t spr)
 {
     Draw *d = s_pend, player;
     int nd = 0, i;
-    uint16_t tick = DS16(0x1600);
+    uint16_t tick = DS16(0x160c);
     uint32_t pz;
     if (!s_recording) return;
 
-    /* run clock: 0x1600 counts game ticks but is reset when the end-of-road
+    /* run clock: 0x160c counts game ticks but is reset when the end-of-road
      * animation starts */
     if (s_first) s_first = 0;
     else if (tick >= s_last_tick) s_t += (uint16_t)(tick - s_last_tick);
     else {
-        /* the end-of-road animation (1000:0f05) restarts the counter: the
+        /* the end-of-road animation (1000:0e58) restarts the counter: the
          * road was finished here (for the fastest times) */
         if (!s_finish_t) s_finish_t = s_t;
         s_t += tick;
     }
     s_last_tick = tick;
 
-    pz = ((uint32_t)DS16(0x961a) << 16) | DS16(0x9618);
+    pz = ((uint32_t)DS16(0x962a) << 16) | DS16(0x9628);
     if (s_nrec < MAX_FRAMES && s_t <= 0xffff) {
         Frame *f;
         if (s_nrec == s_caprec) {
@@ -385,8 +385,8 @@ void ghost_frame(int16_t spr)
         if (s_nrec && s_rec[s_nrec - 1].t == (uint16_t)s_t) f--;   /* same tick */
         else s_nrec++;
         f->t = (uint16_t)s_t;
-        f->x = DS16(0xaf1c);
-        f->y = DS16(0xaf2c);
+        f->x = DS16(0xaf2c);
+        f->y = DS16(0xaf3c);
         f->spr = spr;
         f->z = pz;
 #ifdef __EMSCRIPTEN__
@@ -411,10 +411,10 @@ void ghost_frame(int16_t spr)
     memset(&player, 0, sizeof player);
     if (spr >= 0) {
         float left, top;
-        ship_rect(DS16(0xaf1c), DS16(0xaf2c), &left, &top);
+        ship_rect(DS16(0xaf2c), DS16(0xaf3c), &left, &top);
         player.x0 = (int16_t)left;
         player.y0 = (int16_t)top;
-        player.spr = SEG(DS16(0xaf36)) + (uint16_t)(DS16(0xaf34) + spr * 0x2d0);
+        player.spr = SEG(DS16(0xaf46)) + (uint16_t)(DS16(0xaf44) + spr * 0x2d0);
     }
     s_npend = nd;
     s_pend_player = player;

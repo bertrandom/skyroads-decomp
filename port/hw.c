@@ -7,7 +7,7 @@
  *
  * The original installs its own INT 8 (timer, ~180 Hz) and INT 9 (keyboard)
  * handlers; they are re-implemented here from the disassembly at
- * 1000:3b17 and 1000:3bcc. */
+ * 1000:3afb and 1000:3bb0. */
 #include "compat.h"
 #include "protos.h"
 #include <stdatomic.h>
@@ -21,23 +21,23 @@ static atomic_int s_kbd_isr_on;
 static atomic_uint s_vsync_count;
 static atomic_uint s_bios_ticks;
 
-void music_tick(void);          /* audio.c: 1000:5a55 AdLib player tick */
+void music_tick(void);          /* audio.c: 1000:5a39 AdLib player tick */
 void speaker_set_divisor(uint16_t div);
 
 /* ------------------------------------------------------------------ */
-/* INT 8 handler (1000:3b17)                                          */
+/* INT 8 handler (1000:3afb)                                          */
 /* ------------------------------------------------------------------ */
 static void timer_isr(void)
 {
     uint8_t c;
     music_tick();
-    c = DS8(0x3192);
+    c = DS8(0x319e);
     if (c == 0 || c == 5) {
         uint16_t bx, cx;
-        DS16(0x1600) = (uint16_t)(DS16(0x1600) + 1);
-        bx = DS16(0xbd0);
+        DS16(0x160c) = (uint16_t)(DS16(0x160c) + 1);
+        bx = DS16(0xba0);
         cx = *(volatile uint16_t *)(g_ds + bx);
-        if (cx != 0) DS16(0xbd0) = (uint16_t)(bx + 2);
+        if (cx != 0) DS16(0xba0) = (uint16_t)(bx + 2);
         speaker_set_divisor((uint16_t)(cx + 2));
     }
     c--;
@@ -45,7 +45,7 @@ static void timer_isr(void)
         c = 9;
         atomic_fetch_add(&s_bios_ticks, 1);   /* chained BIOS tick, 18.2 Hz */
     }
-    DS8(0x3192) = c;
+    DS8(0x319e) = c;
 }
 
 static int timer_thread(void *arg)
@@ -74,11 +74,11 @@ uint32_t timer_ticks(void) { return atomic_load(&s_bios_ticks); }
 void hw_timer_isr_install(int on) { atomic_store(&s_timer_isr_on, on); }
 
 /* ------------------------------------------------------------------ */
-/* INT 9 handler (1000:3bcc)                                          */
+/* INT 9 handler (1000:3bb0)                                          */
 /* ------------------------------------------------------------------ */
 static void kbd_isr(uint8_t al)
 {
-    uint16_t bx = 0xbd2;
+    uint16_t bx = 0xba2;
     while (al != DS8(bx)) {
         bx++;
         if ((DS8(bx) & 0x7f) == 0) break;
@@ -239,7 +239,7 @@ void hw_joystick(int x, int y, int buttons)
 {
     atomic_store(&s_joy_x, x); atomic_store(&s_joy_y, y); atomic_store(&s_joy_btn, buttons);
 }
-int hw_mouse_mode(void) { return g_ds && DS16(0x95f6) == 2; }
+int hw_mouse_mode(void) { return g_ds && DS16(0x9602) == 2; }
 
 /* 1000:068b  INT 33h AX=0,1,2: reset / show / hide */
 void FUN_1000_068b(void) { atomic_store(&s_mouse_x, 320); atomic_store(&s_mouse_y, 100); }

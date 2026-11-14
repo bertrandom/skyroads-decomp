@@ -33,7 +33,7 @@ typedef uint32_t undefined4;
 #define MEM_SIZE 0x120000
 extern uint8_t *g_mem;
 
-#define DS_BASE  0x16760u    /* 0x1000:0x6760  (CS base 0x1000) */
+#define DS_BASE  0x166e0u    /* 0x1000:0x66e0  (CS base 0x1000) */
 #define CS_BASE  0x10000u
 #define VGA_BASE 0xA0000u
 #define VGA_SEG  0xA000u
@@ -63,9 +63,9 @@ extern uint8_t g_stack_dummy;
  * original these were the caller's registers; the ported code paths that use
  * them are re-implemented by hand in runtime.c, but keep the names available
  * so the transformed code still compiles. */
-#define unaff_DS 0x1676u
-#define unaff_ES 0x1676u
-#define unaff_SS 0x218au
+#define unaff_DS 0x166eu
+#define unaff_ES 0x166eu
+#define unaff_SS 0x2183u
 
 /* PC port I/O.  Width is chosen by port; both return/accept the 16-bit AX. */
 uint16_t port_in(uint16_t port);
@@ -98,7 +98,7 @@ extern uint16_t g_dsp;
 static inline uint8_t *ds_frame_alloc(unsigned size, uint16_t *saved) {
     *saved = g_dsp;
     g_dsp = (uint16_t)((g_dsp - size) & ~7u);
-    if (g_dsp < 0xb140u) { fprintf(stderr, "DS stack overflow\n"); abort(); }
+    if (g_dsp < 0xb150u) { fprintf(stderr, "DS stack overflow\n"); abort(); }
     memset(g_ds + g_dsp, 0, size);
     return g_ds + g_dsp;
 }

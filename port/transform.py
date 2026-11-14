@@ -14,36 +14,36 @@ import re
 import gen_protos
 import wrap16
 
-SRC = "../build/skyroads.c"
+SRC = "../build/skyroads_bluemoon.c"
 OUT_C = "game.c"
 OUT_H = "game.h"
 
 MANUAL = set("""
-FUN_1000_00bb FUN_1000_03c2 FUN_1000_3f91 FUN_1000_3fe2 FUN_1000_4084 FUN_1000_4331 FUN_1000_4485 FUN_1000_4b43
-FUN_1000_5614 FUN_1000_57c4
-FUN_1000_0eeb FUN_1000_0f62 FUN_1000_0f8c FUN_1000_1073 FUN_1000_1191 FUN_1000_11d3
-FUN_1000_2b0f FUN_1000_4052 FUN_1000_41a0 FUN_1000_4201 FUN_1000_3acc FUN_1000_3b6b
-FUN_1000_6006 FUN_1000_60ee FUN_1000_0046 FUN_1000_5e5a FUN_1000_0c98
-FUN_1000_58a5 FUN_1000_58cd FUN_1000_5b76 FUN_1000_5bc0 FUN_1000_05f6
+FUN_1000_00bb FUN_1000_03c2 FUN_1000_3f75 FUN_1000_3fc6 FUN_1000_4068 FUN_1000_4315 FUN_1000_4469 FUN_1000_4b27
+FUN_1000_55f8 FUN_1000_57a8
+FUN_1000_0e3e FUN_1000_0eb5 FUN_1000_0edf FUN_1000_0fc6 FUN_1000_10e4 FUN_1000_1126
+FUN_1000_2af3 FUN_1000_4036 FUN_1000_4184 FUN_1000_41e5 FUN_1000_3ab0 FUN_1000_3b4f
+FUN_1000_5fc8 FUN_1000_60b0 FUN_1000_0046 FUN_1000_5e1c FUN_1000_0be3
+FUN_1000_5889 FUN_1000_58b1 FUN_1000_5b5a FUN_1000_5ba4 FUN_1000_05f6
 FUN_1000_0000 FUN_1000_0672 FUN_1000_068b FUN_1000_06a4 FUN_1000_06b9
-FUN_1000_0ed0 FUN_1000_2cce FUN_1000_2d1f FUN_1000_34ae FUN_1000_39d4
-FUN_1000_3a22 FUN_1000_3a3f FUN_1000_3a96 FUN_1000_3b9d FUN_1000_3c03
-FUN_1000_3c52 FUN_1000_3c9a FUN_1000_3cb1 FUN_1000_3d18 FUN_1000_3d9e
-FUN_1000_3e0f FUN_1000_3e4c FUN_1000_3e8a FUN_1000_5892 FUN_1000_5919
-FUN_1000_59cf FUN_1000_5a98 FUN_1000_5b39 FUN_1000_5bdb FUN_1000_5bf8
-FUN_1000_5c36 FUN_1000_5c59 FUN_1000_5c6a FUN_1000_5c77 FUN_1000_5c96
-FUN_1000_5ca6 FUN_1000_5cd1 FUN_1000_5ce3 FUN_1000_5d07 FUN_1000_5d1b
-FUN_1000_5d33 FUN_1000_5d4c FUN_1000_5d80 FUN_1000_5d8c FUN_1000_5dee
-FUN_1000_5c82 FUN_1000_5f7d FUN_1000_5fcc FUN_1000_5fd4 FUN_1000_5feb
-FUN_1000_6001 FUN_1000_6053 FUN_1000_60e9
-FUN_1000_601d FUN_1000_6027 FUN_1000_603b FUN_1000_609f FUN_1000_60ab
-FUN_1000_6151 FUN_1000_6168 FUN_1000_61e4 entry
-FUN_1000_5ef6 FUN_1000_5f0c FUN_1000_5f52 FUN_1000_5fb5
-FUN_1000_630f FUN_1000_6326 FUN_1000_633d FUN_1000_6350 FUN_1000_6364
-FUN_1000_63a3 FUN_1000_63bf FUN_1000_63d3 FUN_1000_63f0 FUN_1000_6420
-FUN_1000_644a FUN_1000_6490 FUN_1000_6499 FUN_1000_64ab FUN_1000_64ff
-FUN_1000_6576 FUN_1000_6595 FUN_1000_65e0 FUN_1000_661f FUN_1000_6645
-FUN_1000_6679 FUN_1000_669c FUN_1000_66e6
+FUN_1000_0e23 FUN_1000_2cb2 FUN_1000_2d03 FUN_1000_3492 FUN_1000_39b8
+FUN_1000_3a06 FUN_1000_3a23 FUN_1000_3a7a FUN_1000_3b81 FUN_1000_3be7
+FUN_1000_3c36 FUN_1000_3c7e FUN_1000_3c95 FUN_1000_3cfc FUN_1000_3d82
+FUN_1000_3df3 FUN_1000_3e30 FUN_1000_3e6e FUN_1000_5876 FUN_1000_58fd
+FUN_1000_59b3 FUN_1000_5a7c FUN_1000_5b1d FUN_1000_5bbf FUN_1000_5bdc
+FUN_1000_6202 FUN_1000_5c1a FUN_1000_5c2b FUN_1000_5c38 FUN_1000_5c57
+FUN_1000_5c67 FUN_1000_5c92 FUN_1000_5ca4 FUN_1000_5cc8 FUN_1000_5cdc
+FUN_1000_5cf4 FUN_1000_5d0e FUN_1000_5d42 FUN_1000_5d4e FUN_1000_5db0
+FUN_1000_5c43 FUN_1000_5f3f FUN_1000_5f8e FUN_1000_5f96 FUN_1000_5fad
+FUN_1000_5fc3 FUN_1000_6015 FUN_1000_60ab
+FUN_1000_5fdf FUN_1000_5fe9 FUN_1000_5ffd FUN_1000_6061 FUN_1000_606d
+FUN_1000_6151 FUN_1000_6233 FUN_1000_60c1 entry
+FUN_1000_5eb8 FUN_1000_5ece FUN_1000_5f14 FUN_1000_5f77
+FUN_1000_61ec FUN_1000_62a0 FUN_1000_62b7 FUN_1000_62ca FUN_1000_62de
+FUN_1000_631d FUN_1000_6339 FUN_1000_634d FUN_1000_636a FUN_1000_639a
+FUN_1000_63c4 FUN_1000_640a FUN_1000_6413 FUN_1000_6425 FUN_1000_6479
+FUN_1000_64f0 FUN_1000_650f FUN_1000_655a FUN_1000_6599 FUN_1000_65bf
+FUN_1000_65f3 FUN_1000_6616 FUN_1000_6660
 """.split())
 
 TYPE_MAP = {
@@ -246,29 +246,29 @@ def to_kr(text):
 
 # Textual fixes for call sites where Ghidra lost stack arguments.
 FIXUPS = [
-    ("FUN_1000_5fb5(uVar4);", "FUN_1000_5fb5(uVar4,0,uVar5,0x7d64);"),
-    ("FUN_1000_5fb5(uVar1);", "FUN_1000_5fb5(uVar1,0,*(volatile uint16_t *)(g_ds + 0x4560),0x7d64);"),
-    ("FUN_1000_6420(uVar1);", "FUN_1000_6420(uVar1,0,0x1000,0);"),
-    # 1000:5d80 shifts DX:AX left by CL (register args); both callers do [0x41c0] << 16
-    ("FUN_1000_5d80()", "((uint32_t)*(volatile uint16_t *)(g_ds + 0x41c0) << 16)"),
-    ("FUN_1000_5d8c(uVar4,iVar1 + -3,uVar7)", "FUN_1000_5d8c(uVar4,iVar1 + -3,(uint16_t)uVar7,(uint16_t)(uVar7 >> 16))"),
-    # 1000:2b3d: the last three 2d1f args were attributed to the 0baf call
-    ("iVar1 = FUN_1000_0baf(0,0x2800,1,0,iVar1);", "int16_t p8_dst = iVar1;\n  iVar1 = FUN_1000_0baf(0,0x2800);"),
-    ("*(volatile uint16_t *)(g_ds + 0xaf36));\n  FUN_1000_4b8e(0x41c2,1,0x24);",
-     "*(volatile uint16_t *)(g_ds + 0xaf36),1,0,p8_dst);\n  FUN_1000_4b8e(0x41c2,1,0x24);"),
-    ("piVar1 = (int16_t *)(*(volatile int16_t *)(g_ds + 0x9332) * 2 + 0x451c);",
-     "piVar1 = (int16_t *)near_ptr((uint16_t)(*(volatile int16_t *)(g_ds + 0x9332) * 2 + 0x451c));"),
-    ("*(int16_t *)*(volatile uint16_t *)(g_ds + 0xbd0)", "*(int16_t *)near_ptr(*(volatile uint16_t *)(g_ds + 0xbd0))"),
-    # 1000:186b: the 1631 args were attributed to the preceding 04c0 call
-    ("uVar4 = FUN_1000_04c0(param_1,param_2,param_3 + (*(int16_t *)(_frame + 4)),0x2f - (*(uint16_t *)(_frame + 6)),param_4);\n      iVar3 = FUN_1000_1631(uVar4);",
-     "uVar4 = FUN_1000_04c0(param_1,param_2,param_3 + (*(int16_t *)(_frame + 4)));\n      iVar3 = FUN_1000_1631(uVar4,0x2f - (*(uint16_t *)(_frame + 6)),param_4);"),
-    ("FUN_1000_6168(0xbe,3,0x53ae);", "FUN_1000_6168(0xbe,3,0x53ae,0x1676);"),
+    ("FUN_1000_5f77(uVar4);", "FUN_1000_5f77(uVar4,0,uVar5,0x7d64);"),
+    ("FUN_1000_5f77(uVar1);", "FUN_1000_5f77(uVar1,0,*(volatile uint16_t *)(g_ds + 0x456c),0x7d64);"),
+    ("FUN_1000_639a(uVar1);", "FUN_1000_639a(uVar1,0,0x1000,0);"),
+    # 1000:5d42 shifts DX:AX left by CL (register args); both callers do [0x41ce] << 16
+    ("FUN_1000_5d42()", "((uint32_t)*(volatile uint16_t *)(g_ds + 0x41ce) << 16)"),
+    ("FUN_1000_5d4e(uVar4,iVar1 + -3,uVar7)", "FUN_1000_5d4e(uVar4,iVar1 + -3,(uint16_t)uVar7,(uint16_t)(uVar7 >> 16))"),
+    # 1000:2b21: the last three 2d1f args were attributed to the 0baf call
+    ("iVar1 = FUN_1000_0afa(0,0x2800,1,0,iVar1);", "int16_t p8_dst = iVar1;\n  iVar1 = FUN_1000_0afa(0,0x2800);"),
+    ("*(volatile uint16_t *)(g_ds + 0xaf46));\n  FUN_1000_4b72(0x41d0,1,0x24);",
+     "*(volatile uint16_t *)(g_ds + 0xaf46),1,0,p8_dst);\n  FUN_1000_4b72(0x41d0,1,0x24);"),
+    ("piVar1 = (int16_t *)(*(volatile int16_t *)(g_ds + 0x933e) * 2 + 0x452a);",
+     "piVar1 = (int16_t *)near_ptr((uint16_t)(*(volatile int16_t *)(g_ds + 0x933e) * 2 + 0x452a));"),
+    ("*(int16_t *)*(volatile uint16_t *)(g_ds + 0xba0)", "*(int16_t *)near_ptr(*(volatile uint16_t *)(g_ds + 0xba0))"),
+    # 1000:17be: the 1631 args were attributed to the preceding 04c0 call
+    ("uVar4 = FUN_1000_04c0(param_1,param_2,param_3 + (*(int16_t *)(_frame + 4)),0x2f - (*(uint16_t *)(_frame + 6)),param_4);\n      iVar3 = FUN_1000_1584(uVar4);",
+     "uVar4 = FUN_1000_04c0(param_1,param_2,param_3 + (*(int16_t *)(_frame + 4)));\n      iVar3 = FUN_1000_1584(uVar4,0x2f - (*(uint16_t *)(_frame + 6)),param_4);"),
+    ("FUN_1000_6233(0xbe,3,0x53bc);", "FUN_1000_6233(0xbe,3,0x53bc,0x166e);"),
 ]
 
 
 # functions taking a 32-bit value as two 16-bit arguments: name -> arg count
-LONG_FUNCS = {"FUN_1000_5d8c": 4, "FUN_1000_5d4c": 4, "FUN_1000_5dee": 4,
-              "FUN_1000_5e5a": 4, "FUN_1000_1732": 4, "FUN_1000_1c62": 3}
+LONG_FUNCS = {"FUN_1000_5d4e": 4, "FUN_1000_5d0e": 4, "FUN_1000_5db0": 4,
+              "FUN_1000_5e1c": 4, "FUN_1000_1685": 4, "FUN_1000_1bb5": 3}
 
 
 def split_long_args(text):
@@ -499,37 +499,8 @@ def main():
     gen_protos.write_header(defs, "protos.h")
     # restore 16-bit integer semantics (needs game.c and protos.h on disk)
     wrap16.main(OUT_C)
-    remap_music(OUT_C)
     print("wrote %s and %s (%d declarations)" % (OUT_C, OUT_H, len(decls)))
 
-
-# The decompiled SKYROADS.EXE is an early release whose MUZAX.LZS has 10
-# songs (intro + 9 road songs) and no menu theme: its menus reuse song 2.
-# The data uses Bluemoon's current MUZAX.LZS (the one their skyroads.zip
-# ships, shared with SkyRoads Xmas Special): 14 songs, 0 intro, 1 menu,
-# 2..13 roads.  Request songs the way that release's SKYROADS.EXE does
-# (menus `push 1`; roads random % 12 + 2), so the music matches it.
-MUSIC_REMAP = [
-    # road start (1000:01b8): random % 9 + 1  ->  random % 12 + 2
-    ("      uVar4 = uVar4 % 9;\n", "      uVar4 = uVar4 % 12;\n", 1),
-    ("        uVar4 = ((uint16_t)(uVar4 + 1)) % 9;\n",
-     "        uVar4 = ((uint16_t)(uVar4 + 1)) % 12;\n", 1),
-    ("      FUN_1000_57c4((uint16_t)(uVar4 + 1));\n",
-     "      FUN_1000_57c4((uint16_t)(uVar4 + 2));\n", 1),
-    # main menu (4e52), road select (5180), Controls sound on (4c20): song 1
-    ("FUN_1000_57c4(2);", "FUN_1000_57c4(1);", 3),
-]
-
-
-def remap_music(path):
-    text = open(path).read()
-    for old, new, count in MUSIC_REMAP:
-        found = text.count(old)
-        if found != count:
-            raise SystemExit("transform.py: music remap expected %d of %r, found %d"
-                             % (count, old, found))
-        text = text.replace(old, new)
-    open(path, "w").write(text)
 
 
 if __name__ == "__main__":

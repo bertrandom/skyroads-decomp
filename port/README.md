@@ -1,22 +1,21 @@
 # SkyRoads – native macOS port of the decompilation
 
 This directory builds a native (arm64/x86_64) macOS version of SkyRoads
-(Bluemoon, 1993) from the Ghidra pseudo-C in `../build/skyroads.c`.  It is a
-*rewrite*, not an emulator: the game logic is the decompiled C, compiled
-natively; the parts Ghidra could not express (hand written assembly, BIOS/DOS
-calls, hardware access) were re-implemented in C from the disassembly.
+(Bluemoon, 1993) from the Ghidra pseudo-C in `../build/skyroads_bluemoon.c`.
+It is a *rewrite*, not an emulator: the game logic is the decompiled C,
+compiled natively; the parts Ghidra could not express (hand written assembly,
+BIOS/DOS calls, hardware access) were re-implemented in C from the disassembly.
 
-The original data files are required (`../resources/Skyroads/*.LZS`, `*.DAT`,
-`*.SND`, `DEMO.REC`).
-
-Music: the decompiled `SKYROADS.EXE` is an early release whose `MUZAX.LZS`
-has 10 songs (intro and 9 road songs) and no menu theme, so its menus reuse
-song 2 (a road song). `resources/Skyroads/MUZAX.LZS` is instead the one in
-Bluemoon's current `skyroads.zip` (shared with SkyRoads Xmas Special): 14
-songs, 0 intro, 1 menu, 2–13 roads. `transform.py` (`MUSIC_REMAP`) makes the
-generated code request songs the way that release's executable does: song 1
-for the main menu, road select and the Controls screen, and `random % 12 + 2`
-for a road, so the music matches the DOS game from Bluemoon's site.
+The game files are Bluemoon's current release (`../resources/Skyroads`, from
+`../resources/SkyRoads (Bluemoon).zip`; its `SKYROADS.EXE` is the same file as
+SkyRoads Xmas Special's `SKYXMAS.EXE`): 14-song music with a menu theme, the
+newer intro credits and help pages, and the burning row on Asteroid Belt
+Road 1. The port was first made from an earlier, DIET-packed release
+(`../resources/SkyRoads (1993).zip`, decompiled in `../build/skyroads.c`) and
+then moved onto this one: `../scripts/addrmap.py` aligns the two builds
+instruction by instruction and writes `../build/addrmap.json` (where every
+function and data address moved), and `../scripts/rebase_port.py` rewrote the
+hand-written code with it.
 
 ## Build & run
 
@@ -56,8 +55,8 @@ Progress (`skyroads.cfg`) is stored in
 | `platform.c`, `main.c` | SDL window/audio/input, file access, threads |
 
 Memory model: the program's 16-bit address space is kept as a flat 1 MiB
-array (`g_mem`) with the unpacked EXE image loaded at `1000:0000`; the data
-segment is `1676:0000`.  The data segment is 64 KiB aligned in host memory and
+array (`g_mem`) with the EXE's load image at `1000:0000`; the data segment is
+`166e:0000`.  The data segment is 64 KiB aligned in host memory and
 the generated functions' stack frames are allocated inside it (as in the
 original, SS == DS), so near pointers and 16-bit offsets are interchangeable.
 Far pointers / segments are used as-is (`seg << 4` into `g_mem`).

@@ -31,7 +31,7 @@ static void start_game(void)
     SDL_CreateThread(game_thread, "game", NULL);
 }
 
-/* DOS "terminate program" (1000:6001): stop the game thread. */
+/* DOS "terminate program" (1000:5fc3): stop the game thread. */
 void game_exit(int code)
 {
     fflush(stdout);

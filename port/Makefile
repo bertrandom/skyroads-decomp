@@ -29,14 +29,14 @@ all: skyroads
 
 MANUAL_SRC = runtime.c manual.c render.c audio.c hw.c video.c
 
-game.c game.h protos.h: ../build/skyroads.c transform.py gen_protos.py wrap16.py $(MANUAL_SRC)
+game.c game.h protos.h: ../build/skyroads_bluemoon.c transform.py gen_protos.py wrap16.py $(MANUAL_SRC)
 	python3 transform.py
 
 regen:
 	python3 transform.py
 
-image_data.h: ../build/SKYROADS_unpacked.EXE gen_image.py
-	python3 gen_image.py ../build/SKYROADS_unpacked.EXE image_data.h
+image_data.h: ../resources/Skyroads/SKYROADS.EXE gen_image.py
+	python3 gen_image.py ../resources/Skyroads/SKYROADS.EXE image_data.h
 
 %.o: %.c compat.h protos.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
