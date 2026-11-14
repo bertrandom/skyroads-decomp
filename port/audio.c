@@ -69,6 +69,7 @@ static double s_spk_phase;
  * single-producer/single-consumer queue stamped with the timer tick; the
  * synthesizer applies them at the matching sample, a fixed latency behind. */
 #include <stdatomic.h>
+#include <emscripten.h>
 #define OPLQ 4096
 typedef struct { uint32_t tick; uint8_t reg, val; } OplEvt;
 static OplEvt s_q[OPLQ];
@@ -78,9 +79,20 @@ static double s_synth_tick = -1;    /* tick position of the next sample */
 #define TICK_SAMPLES (RATE / 180.0)
 #define LATENCY_TICKS 16.0
 
+/* The page suspends the audio output while the sound is off, and the music
+ * plays on unheard.  Meanwhile the writes are only remembered here (the
+ * last value of each register) and written to the chip when the output
+ * comes back, so the song continues where it is. */
+static volatile uint8_t s_shadow[256], s_shadow_set[256];
+static atomic_int s_out_muted;
+
 static void oplq_push(uint8_t reg, uint8_t val)
 {
-    unsigned w = atomic_load_explicit(&s_q_w, memory_order_relaxed);
+    unsigned w;
+    s_shadow[reg] = val;
+    s_shadow_set[reg] = 1;
+    if (atomic_load_explicit(&s_out_muted, memory_order_acquire)) return;
+    w = atomic_load_explicit(&s_q_w, memory_order_relaxed);
     if (w - atomic_load_explicit(&s_q_r, memory_order_acquire) >= OPLQ) return;
     s_q[w % OPLQ].tick = atomic_load_explicit(&s_tick, memory_order_relaxed);
     s_q[w % OPLQ].reg = reg;
@@ -101,6 +113,24 @@ static void oplq_apply(void)
         r++;
     }
     atomic_store_explicit(&s_q_r, r, memory_order_release);
+}
+
+/* main thread, which also runs the audio callback (so it is not running) */
+EMSCRIPTEN_KEEPALIVE void sky_audio_mute(int mute)
+{
+    int pass, reg;
+    if (mute) { atomic_store(&s_out_muted, 1); return; }
+    if (!atomic_exchange(&s_out_muted, 0)) return;
+    /* drop what was queued before the mute, then bring the chip up to date:
+     * instruments and pitches first, then the key-on registers (a write
+     * also queued since is applied again, which changes nothing) */
+    atomic_store(&s_q_r, atomic_load(&s_q_w));
+    for (pass = 0; pass < 2; pass++)
+        for (reg = 0; reg < 256; reg++) {
+            int key = (reg >= 0xb0 && reg <= 0xb8) || reg == 0xbd;
+            if (s_shadow_set[reg] && key == pass) opl_write((uint8_t)reg, s_shadow[reg]);
+        }
+    s_synth_tick = -1;
 }
 #endif
 

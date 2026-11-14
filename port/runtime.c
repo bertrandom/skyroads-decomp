@@ -488,13 +488,11 @@ void sound_poll(void)
     }
     on = atomic_exchange(&s_sound_req, -1);
     if (on < 0 || !g_ds) return;
-    if (on) {
-        if (DS16(0x4528) == 0 && DS16(0xbc2) == 0xffff && s_want_song >= 0)
-            FUN_1000_57a8(s_want_song);
-    } else if (DS16(0x4528) != 0) {
-        FUN_1000_5889();
-        DS16(0xbc2) = 0xffff;
-    }
+    /* off from the page only mutes: the song plays on unheard (the page
+     * stops the audio output) and continues when sound comes back on; a
+     * song asked for meanwhile is not started (FUN_1000_57a8), so start it */
+    if (on && DS16(0x4528) == 0 && DS16(0xbc2) == 0xffff && s_want_song >= 0)
+        FUN_1000_57a8(s_want_song);
     FUN_1000_5770();                    /* skyroads.cfg */
     s_in_controls = controls;           /* (saving it marks leaving Controls) */
     if (controls) FUN_1000_4ae2();      /* Controls screen: move the marks */
@@ -506,13 +504,13 @@ EMSCRIPTEN_KEEPALIVE int sky_sound_on(void) { return g_ds && DS16(0x4528) == 0; 
 /* main thread: skyroads.cfg's values (localStorage) changed, re-read them */
 EMSCRIPTEN_KEEPALIVE void sky_reload_cfg(void) { atomic_store(&s_cfg_reload, 1); }
 
-/* main thread (settings menu): switch at once, the rest in sound_poll */
+/* main thread (settings menu): switch the setting at once (new songs and
+ * effects follow it), the rest in sound_poll.  The music is not stopped:
+ * the page mutes the output (sky_audio_mute) so the song carries on. */
 EMSCRIPTEN_KEEPALIVE void sky_set_sound(int on)
 {
     if (!g_ds || (DS16(0x4528) == 0) == (on != 0)) return;
     DS16(0x4528) = on ? 0 : 1;
-    if (!on) FUN_1000_5889();           /* silence now: the player idles */
-    DS16(0xbc2) = 0xffff;               /* no song playing */
     atomic_store(&s_sound_req, on != 0);
 }
 #endif
@@ -524,7 +522,7 @@ void FUN_1000_57a8(int _param_1)
     s_want_song = param_1;              /* to resume when sound comes back on */
     if (DS16(0xbc2) == param_1) return;
     FUN_1000_5889();
-    if (DS16(0x4528) != 0) return;
+    if (DS16(0x4528) != 0) { DS16(0xbc2) = 0xffff; return; }   /* none playing */
     h = FUN_1000_5c38(0xe1e);
     DS16(0x41b8) = h;
     {
