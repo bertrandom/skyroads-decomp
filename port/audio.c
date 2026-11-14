@@ -34,10 +34,15 @@ static void opl_init(void)
     if (!s_opl_ready) { OPL3_Reset(&s_opl, RATE); s_opl_ready = 1; }
 }
 
+/* Buffered: Nuked applies each write a couple of chip samples after the
+ * previous one, like the real chip behind the player's port delays.  The
+ * player restarts a note by keying it off and straight back on (B0+ch, and
+ * the drum bits in BD); written at once, the chip never sees the key off and
+ * the note does not sound again. */
 static void opl_write(uint8_t reg, uint8_t val)
 {
     opl_init();
-    OPL3_WriteReg(&s_opl, reg, val);
+    OPL3_WriteRegBuffered(&s_opl, reg, val);
 }
 
 static double opl_sample(void)
