@@ -626,6 +626,18 @@ void FUN_1000_0be3(int param_1)
             }
         }
     }
+    {   /* test: SKY_FLY=1 keeps the ship flying over everything in the
+         * middle lane and cancels crashes, falls and running out of fuel or
+         * oxygen, so holding accelerate goes through the whole road */
+        static int fly = -1;
+        if (fly < 0) fly = getenv("SKY_FLY") != NULL;
+        if (fly && DS16(0x9602) != 3) {
+            DS16(0x457c) = 0;               /* end state */
+            DS16(0x4578) = 0;               /* explosion / fall counter */
+            DS16(0xaf2c) = 0x8000;          /* the middle lane */
+            if (DS16(0xaf3c) < 0x5000) DS16(0xaf3c) = 0x5000;   /* above full blocks */
+        }
+    }
     v6 = FUN_1000_0533(DS16(0x9628), DS16(0x962a), DS16(0xaf2c), DS16(0xaf3c));
     if (getenv("SKY_DEBUG") && DS16(0x962a) + 2 >= DS16(0x41ce))
         fprintf(stderr, "[end? pos=%04x:%04x len=%u x=%04x y=%04x tunnel=%d 456e=%u]\n",
@@ -722,10 +734,13 @@ static int shape_lines(const uint8_t *t, uint16_t *si, int *first, int *last)
 }
 
 /* fitted to every visible row edge, block top and floor edge in the 8
- * TREKDAT tables (worst errors 1.3, 0.8, 0.8 and 0.9 lines): the line of
- * a row edge `d` rows ahead of the ship, and the heights of half / full
- * blocks and of a floor tile's edge at a floor line */
-#define EDGE_LINE(d) (-21.128f + 225.477f / (2.47f + (d)))
+ * TREKDAT tables: the line of a row edge `d` rows ahead of the ship (the
+ * rows' back and front edges, and for the rows the tables cut off at the
+ * panel, where their block tops end; worst error 1.9 lines; the camera is
+ * at d = -2.65), and the heights of half / full blocks and of a floor
+ * tile's edge at a floor line (worst errors 0.8, 0.8 and 0.9 lines) */
+#define EDGE_CAM 2.65f
+#define EDGE_LINE(d) (-23.401f + 247.392f / (EDGE_CAM + (d)))
 #define HALF_H(y)  (0.4395f * LANE_W(y) - 0.597f)
 #define FULL_H(y)  (0.8751f * LANE_W(y) - 1.072f)
 #define THICK_H(y) (0.1492f * LANE_W(y) - 0.043f)
@@ -761,7 +776,7 @@ static void row_geometry(int k)
         if (s_geo[k][e - 1].yb >= ROAD_LINES_W) break;
         g->ok = 1;
         if (e == last + 1 && ends[last] > 0) g->yb = ends[last];   /* seen ending */
-        else g->yb = 2.47f + d > 0.05f ? EDGE_LINE(d) : 10000.0f;
+        else g->yb = EDGE_CAM + d > 0.05f ? EDGE_LINE(d) : 10000.0f;
     }
     for (e = 0; e < ROWS_W; e++) {
         RowGeo *g = &s_geo[k][e];
@@ -769,7 +784,7 @@ static void row_geometry(int k)
         if (!g->ok) continue;
         if (e + 1 < ROWS_W && s_geo[k][e + 1].ok) g->yf = s_geo[k][e + 1].yb;
         else if (ends[e] > 0) g->yf = ends[e];
-        else g->yf = 2.47f + d > 0.05f ? EDGE_LINE(d) : 10000.0f;
+        else g->yf = EDGE_CAM + d > 0.05f ? EDGE_LINE(d) : 10000.0f;
         if (g->yf < g->yb) g->yf = g->yb;
         g->hb = g->yb - HALF_H(g->yb);  g->hf = g->yf - HALF_H(g->yf);
         g->fb = g->yb - FULL_H(g->yb);  g->ff = g->yf - FULL_H(g->yf);
@@ -832,6 +847,93 @@ static void wide_quad(float xb0, float yb0, float xb1, float yb1,
 
 static uint8_t wide_col(int c, int right) { return DS8(0x322 + c * 4 + right); }
 
+/* Tunnels (TREKDAT shapes +2 and +8, measured from lane 2): an arch half a
+ * lane across and a half block high, its outside shaded in six 30-degree
+ * bands (colours 0x44-0x49, from the lane's outer side round to its inner
+ * side), a rim on the front (0x42) around an opening 0.43 lane across and
+ * 0.85 as high, through which the inner wall shows (0x43; 0x41 under a
+ * block, whose front face has the same opening).  Arches are drawn in
+ * ARCH_SEG pieces per band; the camera is 1.5 lanes above the road over its
+ * middle (from the floor's perspective), which decides the pieces seen. */
+#define ARCH_SEG 3
+#define ARCH_PIECES (6 * ARCH_SEG)
+#define OPEN_X 0.43f
+#define OPEN_H 0.85f
+
+typedef struct { float uc, ax, hscale; int right; } Arch;
+
+/* a point of an arch at angle a (0 = the lane's right edge, pi = left),
+ * on the floor line y of one edge of the row */
+static void arch_pt(const Arch *A, float a, float y, float *px, float *py)
+{
+    *px = LANE_X(A->uc + A->ax * cosf(a), y);
+    *py = y - A->hscale * HALF_H(y) * sinf(a);
+}
+
+/* is a piece of an arch's surface between angles a0 and a1 facing the
+ * camera (outside: its outward normal; inside: the inward one) */
+static int arch_faces(const Arch *A, float a0, float a1, float y, int inside)
+{
+    float a = (a0 + a1) / 2, u = A->uc + A->ax * cosf(a);
+    float h = A->hscale * HALF_H(y) / LANE_W(y) * sinf(a);     /* in lanes */
+    float d = cosf(a) * (3.5f - u) + sinf(a) * (1.5f - h);
+    return inside ? d < 0 : d > 0;
+}
+
+/* the surface of an arch from the row's back edge to its front edge */
+static void arch_surface(const Arch *A, const RowGeo *g, int inside, int fixed_col)
+{
+    int i;
+    for (i = 0; i < ARCH_PIECES; i++) {
+        float a0 = (float)M_PI * i / ARCH_PIECES, a1 = (float)M_PI * (i + 1) / ARCH_PIECES;
+        float x[4], y[4];
+        int band = i / ARCH_SEG;            /* 0 = right edge .. 5 = left edge */
+        int col;
+        if (!arch_faces(A, a0, a1, g->yf, inside)) continue;
+        /* the bands run from the lane's outer side (0x44) to its inner side */
+        col = fixed_col ? fixed_col : 0x44 + (A->right ? band : 5 - band);
+        arch_pt(A, a0, g->yb, &x[0], &y[0]);
+        arch_pt(A, a1, g->yb, &x[1], &y[1]);
+        arch_pt(A, a1, g->yf, &x[2], &y[2]);
+        arch_pt(A, a0, g->yf, &x[3], &y[3]);
+        wide_poly(x, y, 4, wide_col(col, A->right));
+    }
+}
+
+/* the front of a tunnel at the row's front edge: the ring between the arch
+ * and its opening (rim), or a face up to height line `top` with the opening
+ * cut out of it (a block's front) */
+static void arch_front(const Arch *outer, const Arch *open, const RowGeo *g,
+                       float u0, float u1, float top, int col, int right)
+{
+    int i;
+    float y = g->yf;
+    for (i = 0; i < ARCH_PIECES; i++) {
+        float a0 = (float)M_PI * i / ARCH_PIECES, a1 = (float)M_PI * (i + 1) / ARCH_PIECES;
+        float x[4], yy[4];
+        arch_pt(open, a0, y, &x[0], &yy[0]);
+        arch_pt(open, a1, y, &x[1], &yy[1]);
+        if (outer) {                            /* the rim */
+            arch_pt(outer, a1, y, &x[2], &yy[2]);
+            arch_pt(outer, a0, y, &x[3], &yy[3]);
+        } else {                                /* out to the face's side */
+            float ue = a0 < (float)M_PI / 2 - 1e-3f ? u1 : u0;
+            x[2] = LANE_X(ue, y); yy[2] = yy[1];
+            x[3] = LANE_X(ue, y); yy[3] = yy[0];
+        }
+        wide_poly(x, yy, 4, wide_col(col, right));
+    }
+    if (!outer) {                               /* above the opening */
+        float ya = y - OPEN_H * HALF_H(y);
+        wide_quad(LANE_X(u0, y), top, LANE_X(u1, y), top, LANE_X(u1, y), ya,
+                  LANE_X(u0, y), ya, wide_col(col, right));
+    }
+}
+
+/* one cell of the outer lanes, the way the renderer's cell handlers
+ * (1000:2e50..303d) draw it: floor tile (top, edges), then by its type
+ * 1 tunnel, 2 half block, 3 half block over a tunnel, 4 full block,
+ * 5 full block over a tunnel (other types draw nothing at all) */
 static void wide_cell(const RowGeo *g, uint16_t cell, int lane, int right)
 {
     int dir = right ? -1 : 1;
@@ -844,6 +946,8 @@ static void wide_cell(const RowGeo *g, uint16_t cell, int lane, int right)
     float bs = LANE_X(us, g->yb), fs = LANE_X(us, g->yf);
     uint8_t c = b0 & 0xf, top = (b0 >> 4) ? (b0 >> 4) : 0x3d;
     int type = b1 & 0xf;
+    Arch outer = { (float)lane + 0.5f, 0.5f, 1.0f, right };
+    Arch open = { (float)lane + 0.5f, OPEN_X, OPEN_H, right };
     if (type > 5) return;
     if (c) {                                            /* floor tile */
         wide_quad(bx0, g->yb, bx1, g->yb, fx1, g->yf, fx0, g->yf, wide_col(c, right));
@@ -854,15 +958,35 @@ static void wide_cell(const RowGeo *g, uint16_t cell, int lane, int right)
             wide_quad(fx0, g->yf, fx1, g->yf, fx1, g->yf + g->th, fx0, g->yf + g->th,
                       wide_col(c + 0xf, right));
     }
-    if (type == 2 || type == 3) {                       /* half block (tunnel: no arch) */
-        if (type == 2 && near1 < 2)
+    switch (type) {
+    case 1:                                             /* tunnel */
+        if (near1 < 1) arch_surface(&open, g, 1, 0x43);
+        arch_surface(&outer, g, 0, 0);
+        if (near1 < 1) arch_front(&outer, &open, g, u0, u1, 0, 0x42, right);
+        break;
+    case 2:                                             /* half block */
+        if (near1 < 2)
             wide_quad(fx0, g->hf, fx1, g->hf, fx1, g->yf, fx0, g->yf, wide_col(0x3e, right));
         wide_quad(bx0, g->hb, bx1, g->hb, fx1, g->hf, fx0, g->hf, wide_col(top, right));
         if (in1 < 2)
             wide_quad(bs, g->hb, bs, g->yb, fs, g->yf, fs, g->hf, wide_col(0x3f, right));
-    } else if (type == 4 || type == 5) {                /* full block */
-        if (type == 4 && near1 < 2)
-            wide_quad(fx0, g->hf, fx1, g->hf, fx1, g->yf, fx0, g->yf, wide_col(0x3e, right));
+        break;
+    case 3:                                             /* half block over a tunnel */
+        if (near1 < 2) arch_surface(&open, g, 1, 0x41);
+        wide_quad(bx0, g->hb, bx1, g->hb, fx1, g->hf, fx0, g->hf, wide_col(top, right));
+        if (in1 < 2)
+            wide_quad(bs, g->hb, bs, g->yb, fs, g->yf, fs, g->hf, wide_col(0x3f, right));
+        if (near1 < 2) arch_front(NULL, &open, g, u0, u1, g->hf, 0x3e, right);
+        break;
+    case 4:                                             /* full block */
+    case 5:                                             /* full block over a tunnel */
+        if (type == 5 && near1 < 2) arch_surface(&open, g, 1, 0x41);
+        if (near1 < 2) {
+            if (type == 4)
+                wide_quad(fx0, g->hf, fx1, g->hf, fx1, g->yf, fx0, g->yf, wide_col(0x3e, right));
+            else
+                arch_front(NULL, &open, g, u0, u1, g->hf, 0x3e, right);
+        }
         if (in1 < 2)
             wide_quad(bs, g->hb, bs, g->yb, fs, g->yf, fs, g->hf, wide_col(0x3f, right));
         wide_quad(bx0, g->fb, bx1, g->fb, fx1, g->ff, fx0, g->ff, wide_col(top, right));
@@ -870,6 +994,9 @@ static void wide_cell(const RowGeo *g, uint16_t cell, int lane, int right)
             wide_quad(bs, g->fb, bs, g->hb, fs, g->hf, fs, g->ff, wide_col(0x3f, right));
         if (near1 < 4)
             wide_quad(fx0, g->ff, fx1, g->ff, fx1, g->hf, fx0, g->hf, wide_col(0x3e, right));
+        break;
+    default:                                            /* 0: floor only */
+        break;
     }
 }
 
@@ -891,7 +1018,10 @@ void wide_road(uint32_t *pixels, int pitch, int left, int right)
         uint16_t row;
         if (!g->ok) continue;
         row = (uint16_t)(0x1638 + ((pos >> 3) + 7 - e) * 14);
-        for (i = 0; i < 2; i++) {                       /* outer lane first */
+        for (i = 0; i < 3; i++) {                       /* outer lane first (near
+                                                           rows fan out: their
+                                                           lanes 2 and 4 reach the
+                                                           margins too) */
             wide_cell(g, (uint16_t)(row + i * 2), i, 0);
             wide_cell(g, (uint16_t)(row + (6 - i) * 2), 6 - i, 1);
         }

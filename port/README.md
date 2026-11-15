@@ -82,7 +82,9 @@ Debug helpers (environment variables): `SKY_DEBUG=1` (file/alloc tracing),
 `SKY_SHOT=dir SKY_SHOT_AT=ms,ms…` (BMP screenshots), `SKY_KEYS=ms:scancode[:hold]…`
 (scripted input), `SKY_AUTOKEYS=0d,4800,…` (keys for blocking menu reads),
 `SKY_WARP=n` (jump to n rows before the end of the road), `SKY_ROAD=n`
-(skip the intro and menus and start road n, 1-30), `SKY_WAV=file`
+(skip the intro and menus and start road n, 1-30), `SKY_FLY=1` (the ship
+flies over everything in the middle lane and cannot crash, fall or run out:
+hold accelerate to go through a whole road), `SKY_WAV=file`
 (raw audio dump).  Widescreen: `SKY_WIDE=1` (or Cmd/Alt+W), `SKY_VIEW_W=n`
 (force the view to n columns, up to 573), `SKY_WIDE_FULL=1` / `SKY_WIDE_DIFF=1`
 (draw the margin road's model over the frame on alternate lines / mark where
