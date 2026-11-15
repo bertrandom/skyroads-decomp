@@ -42,8 +42,14 @@ image_data.h: ../resources/Skyroads/SKYROADS.EXE gen_image.py
 WIDE_BG_DIR = ../backgrounds-ultrawide/filled
 WIDE_PANEL = ../control-panel/control-panel_wide.png
 WIDE_MENU_DIR = ../menu-backgrounds/4x3/filled
-wide_bg.h: gen_wide_bg.py $(wildcard $(WIDE_BG_DIR)/*.png) $(wildcard $(WIDE_PANEL)) $(wildcard $(WIDE_MENU_DIR)/*.png)
+WIDE_INPUTS = gen_wide_bg.py $(wildcard $(WIDE_BG_DIR)/*.png) $(wildcard $(WIDE_PANEL)) $(wildcard $(WIDE_MENU_DIR)/*.png)
+# by content, not date: a picture saved with an older date is still noticed
+wide_bg.sum: FORCE
+	@python3 -c 'import hashlib,sys; print("\n".join(f + " " + hashlib.sha1(open(f, "rb").read()).hexdigest() for f in sys.argv[1:]))' $(WIDE_INPUTS) > $@.new
+	@cmp -s $@.new $@ && rm $@.new || mv $@.new $@
+wide_bg.h: wide_bg.sum
 	python3 gen_wide_bg.py $(WIDE_BG_DIR) wide_bg.h $(WIDE_PANEL) $(WIDE_MENU_DIR)
+FORCE:
 platform.o: platform.c wide_bg.h compat.h
 
 %.o: %.c compat.h protos.h
@@ -71,7 +77,7 @@ app: skyroads
 	@echo "built $(APP)"
 
 clean:
-	rm -f $(OBJS) skyroads game.c game.h protos.h image_data.h wide_bg.h arity.log
+	rm -f $(OBJS) skyroads game.c game.h protos.h image_data.h wide_bg.h wide_bg.sum arity.log
 	rm -rf $(APP)
 
 .PHONY: test all app clean regen

@@ -12,6 +12,7 @@ port/game.c
 port/game.h
 port/image_data.h
 port/wide_bg.h
+port/wide_bg.sum
 
 # Ghidra lock files
 *.lock
