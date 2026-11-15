@@ -556,7 +556,7 @@ static void volume_step(int d)
 {
     char path[1024];
     FILE *f;
-    int on = sky_sound_on(), v = (on ? sky_volume() : 0) + d;
+    int on = sky_sound_on() > 0, v = (on ? sky_volume() : 0) + d;
     if (v <= 0) {
         if (on) sky_set_sound(0);
         return;
@@ -604,7 +604,7 @@ static int frame_step(void)
                         break;
                     }
                     if (e.key.keysym.sym == SDLK_s) {
-                        if (!e.key.repeat) sky_set_sound(!sky_sound_on());
+                        if (!e.key.repeat) sky_set_sound(sky_sound_on() <= 0);
                         break;
                     }
                 }

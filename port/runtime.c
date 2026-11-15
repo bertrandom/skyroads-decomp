@@ -466,6 +466,7 @@ static char s_screen[16];
 static int s_screen_n;
 const char *sky_screen(int *n) { if (n) *n = s_screen_n; return s_screen; }
 static atomic_int s_cfg_reload;         /* the page changed the saved values */
+static atomic_int s_cfg_read;           /* skyroads.cfg has been read (1000:571b) */
 
 /* Game thread, at frame and key-wait points: finish a change made from the
  * page the way the Controls screen (1000:4c04) does: restart the music when
@@ -512,7 +513,13 @@ void sound_poll(void)
 #ifndef __EMSCRIPTEN__
 #define EMSCRIPTEN_KEEPALIVE
 #endif
-EMSCRIPTEN_KEEPALIVE int sky_sound_on(void) { return g_ds && DS16(0x4528) == 0; }
+/* the game's sound setting: 1 on, 0 off; -1 until skyroads.cfg has been read
+ * (the setting is 0, "on", before that) */
+EMSCRIPTEN_KEEPALIVE int sky_sound_on(void)
+{
+    if (!g_ds || !atomic_load(&s_cfg_read)) return -1;
+    return DS16(0x4528) == 0;
+}
 
 #ifdef __EMSCRIPTEN__
 /* main thread: skyroads.cfg's values (localStorage) changed, re-read them */
@@ -657,7 +664,12 @@ void FUN_1000_5c1a(int _handle)
 {
     uint16_t handle = (uint16_t)_handle;
     SkyFile *f = handle_get(handle);
-    if (f) { sky_close(f); g_handles[handle] = NULL; }
+    if (f) {
+        if (strcasecmp(g_handle_names[handle], "skyroads.cfg") == 0)
+            atomic_store(&s_cfg_read, 1);   /* the settings are in (sky_sound_on) */
+        sky_close(f);
+        g_handles[handle] = NULL;
+    }
 }
 
 int16_t FUN_1000_5c67(int _handle, int _lo, int _hi, int _whence)
