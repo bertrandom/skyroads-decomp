@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Embed the widescreen margins of the painted road backdrops as wide_bg.h.
 
-usage: gen_wide_bg.py DIR wide_bg.h
+usage: gen_wide_bg.py DIR wide_bg.h [PANEL.png]
 DIR holds worldN_filled.png (N = 0..9), all the same size: pictures of the
 whole widescreen frame, 240 rows tall (the 320x200 screen stretched to 4:3,
 rows 1.2x tall) with the original screen in the middle, (width - 320) / 2
@@ -10,7 +10,12 @@ are kept, at the game's 200 rows: the PNG row whose middle is nearest each
 game row's middle (the inverse of a nearest-neighbour stretch).  The game
 shows as much of them as the window's shape leaves room for.
 Worlds without a picture are marked missing (platform.c mirrors the
-backdrop instead).  Needs ImageMagick (`magick`) to read the PNGs.
+backdrop instead).
+
+PANEL.png, as wide as the backdrops and 85 rows tall, is the control panel
+(screen rows 129-199, stretched the same way) painted out to the same width,
+transparent where the backdrop shows: its side margins are kept too, at 71
+rows, and drawn over the backdrop's.  Needs ImageMagick (`magick`).
 """
 import os
 import subprocess
@@ -18,6 +23,8 @@ import sys
 
 H, ROWS = 240, 200
 src, out = sys.argv[1], sys.argv[2]
+panel = sys.argv[3] if len(sys.argv) > 3 else None
+PANEL_ROWS, PANEL_H = 71, 85
 paths = [os.path.join(src, 'world%d_filled.png' % n) for n in range(10)]
 present = [p for p in paths if os.path.exists(p)]
 if present:
@@ -49,4 +56,25 @@ with open(out, 'w') as f:
     f.write("static const unsigned char wide_bg[10][%d][%d][3] = {\n" % (ROWS, max(LEFT + RIGHT, 2)))
     for i in range(0, len(data), 24):
         f.write(",".join(str(b) for b in data[i:i + 24]) + ",\n")
+    f.write("};\n")
+    pdata = None
+    if panel and os.path.exists(panel) and W > 320:
+        rgba = subprocess.run(['magick', panel, '-depth', '8', 'rgba:-'],
+                              check=True, capture_output=True).stdout
+        if len(rgba) == W * PANEL_H * 4:
+            pdata = bytearray()
+            for y in range(PANEL_ROWS):
+                line = rgba[int((y + 0.5) * PANEL_H / PANEL_ROWS) * W * 4:][:W * 4]
+                line = line[:LEFT * 4] + line[(LEFT + 320) * 4:]
+                for k in range(0, len(line), 4):     # opaque or not
+                    pdata += line[k:k + 3] + (b'\xff' if line[k + 3] >= 128 else b'\0')
+        else:
+            print('%s is not %dx%d: no wide control panel' % (panel, W, PANEL_H), file=sys.stderr)
+    f.write("/* the control panel's margins (screen rows 129-199), rgba, a = 0 or 255 */\n")
+    f.write("#define WIDE_PANEL_HAVE %d\n" % (1 if pdata else 0))
+    f.write("static const unsigned char wide_panel[%d][%d][4] = {\n" % (PANEL_ROWS, max(LEFT + RIGHT, 2)))
+    if not pdata:
+        pdata = bytes(PANEL_ROWS * max(LEFT + RIGHT, 2) * 4)
+    for i in range(0, len(pdata), 24):
+        f.write(",".join(str(b) for b in pdata[i:i + 24]) + ",\n")
     f.write("};\n")

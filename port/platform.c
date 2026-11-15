@@ -205,6 +205,21 @@ static void draw_margins(uint32_t *pixels, int pitch, int left, int right)
     }
 }
 
+/* the control panel painted out over the margins (rows 129-199, runs only) */
+static void draw_panel_margins(uint32_t *pixels, int pitch, int left, int right)
+{
+    int x, y;
+    if (!WIDE_PANEL_HAVE || !atomic_load(&s_in_run)) return;
+    for (y = 0; y < 71; y++) {
+        uint32_t *out = (uint32_t *)((uint8_t *)pixels + (129 + y) * pitch);
+        const unsigned char (*m)[4] = wide_panel[y];
+        for (x = 0; x < left; x++)
+            if (m[WIDE_BG_LEFT - 1 - x][3]) out[left - 1 - x] = rgb3(m[WIDE_BG_LEFT - 1 - x]);
+        for (x = 0; x < right; x++)
+            if (m[WIDE_BG_LEFT + x][3]) out[left + 320 + x] = rgb3(m[WIDE_BG_LEFT + x]);
+    }
+}
+
 static uint32_t s_shown[MAX_W * 200];   /* the last frame, for SKY_SHOT */
 static int s_shot_w = 320;
 
@@ -244,7 +259,10 @@ void plat_present(void)
             for (int x = 0; x < 320; x++) out[x] = rgb(src[x]);
         }
         ghost_overlay(frame, pitch);
-        if (w > 320) draw_margins((uint32_t *)pixels, pitch, left, right);
+        if (w > 320) {
+            draw_margins((uint32_t *)pixels, pitch, left, right);
+            draw_panel_margins((uint32_t *)pixels, pitch, left, right);
+        }
         for (int y = 0; y < 200; y++)
             memcpy(s_shown + y * w, (uint8_t *)pixels + y * pitch, (size_t)w * 4);
         s_shot_w = w;

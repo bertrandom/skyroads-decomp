@@ -40,8 +40,9 @@ image_data.h: ../resources/Skyroads/SKYROADS.EXE gen_image.py
 
 # widescreen margins painted for each road (../backgrounds-ultrawide/filled)
 WIDE_BG_DIR = ../backgrounds-ultrawide/filled
-wide_bg.h: gen_wide_bg.py $(wildcard $(WIDE_BG_DIR)/*.png)
-	python3 gen_wide_bg.py $(WIDE_BG_DIR) wide_bg.h
+WIDE_PANEL = ../control-panel/control-panel_wide.png
+wide_bg.h: gen_wide_bg.py $(wildcard $(WIDE_BG_DIR)/*.png) $(wildcard $(WIDE_PANEL))
+	python3 gen_wide_bg.py $(WIDE_BG_DIR) wide_bg.h $(WIDE_PANEL)
 platform.o: platform.c wide_bg.h compat.h
 
 %.o: %.c compat.h protos.h
