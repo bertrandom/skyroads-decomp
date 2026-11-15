@@ -34,7 +34,7 @@ same paths relative to the executable / app `Resources` folder.
 Controls are the original ones: arrows to steer/accelerate/brake, Space to jump,
 Esc to go back, Enter to select.  A game controller is mapped to the arrow keys,
 A = jump, Start = Enter, B = Esc; the in-game *joystick* and *mouse* control
-modes also work.  Alt/Cmd+Enter toggles full screen, W widescreen (also
+modes also work.  Alt/Cmd+Enter or F toggles full screen, W widescreen (also
 Cmd/Alt+W), S the sound (the game's own setting, saved), - and = the volume
 (saved as `volume`, 1-100, default 60: the output is scaled by the square
 of it; with the sound off = turns it back on, and - down to 0 turns it

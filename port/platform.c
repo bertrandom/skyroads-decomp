@@ -568,6 +568,12 @@ static void volume_step(int d)
 }
 #endif
 
+static void toggle_fullscreen(void)
+{
+    Uint32 fs = SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+    SDL_SetWindowFullscreen(s_window, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+}
+
 /* One main-thread iteration: events, input, presentation.  Returns 0 when
  * the user asked to quit. */
 static int frame_step(void)
@@ -580,8 +586,7 @@ static int frame_step(void)
             case SDL_KEYDOWN:
                 if (e.key.keysym.sym == SDLK_RETURN &&
                     (e.key.keysym.mod & (KMOD_ALT | KMOD_GUI))) {
-                    Uint32 fs = SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
-                    SDL_SetWindowFullscreen(s_window, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                    toggle_fullscreen();
                     break;
                 }
 #ifndef __EMSCRIPTEN__
@@ -591,9 +596,9 @@ static int frame_step(void)
                     s_wide = !s_wide;
                     break;
                 }
-                /* W: widescreen on/off, S: sound on/off, - and =: volume
-                 * down / up (the game uses none of them; the page has its
-                 * own, see web/shell.html) */
+                /* W: widescreen on/off, S: sound on/off, F: full screen,
+                 * - and =: volume down / up (the game uses none of them;
+                 * the page has its own, see web/shell.html) */
                 if (!(e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
                     if (e.key.keysym.sym == SDLK_MINUS || e.key.keysym.sym == SDLK_EQUALS) {
                         volume_step(e.key.keysym.sym == SDLK_MINUS ? -10 : 10);
@@ -607,6 +612,10 @@ static int frame_step(void)
                         if (!e.key.repeat) sky_set_sound(sky_sound_on() <= 0);
                         break;
                     }
+                    if (e.key.keysym.sym == SDLK_f) {
+                        if (!e.key.repeat) toggle_fullscreen();
+                        break;
+                    }
                 }
 #endif
                 hw_key_event(&e.key, 1);
@@ -614,6 +623,7 @@ static int frame_step(void)
             case SDL_KEYUP:
 #ifndef __EMSCRIPTEN__
                 if ((e.key.keysym.sym == SDLK_w || e.key.keysym.sym == SDLK_s ||
+                     e.key.keysym.sym == SDLK_f ||
                      e.key.keysym.sym == SDLK_MINUS || e.key.keysym.sym == SDLK_EQUALS) &&
                     !(e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)))
                     break;
