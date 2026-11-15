@@ -18,6 +18,7 @@
  * triples, terminated by 0xff.  Spans are drawn one screen line apart. */
 #include "compat.h"
 #include <unistd.h>
+#include <math.h>
 #include "protos.h"
 
 #define DS16(off) (*(volatile uint16_t *)(g_ds + (uint16_t)(off)))
@@ -667,4 +668,205 @@ void FUN_1000_0be3(int param_1)
                   0, p7, p8);
     ghost_publish(s_depth);
     DS16(0x9340) ^= 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Widescreen: the road's outer lanes carried past the frame's edges   */
+/* ------------------------------------------------------------------ */
+/* The frame is 320 columns wide and the TREKDAT shapes are clipped to it,
+ * so near the bottom of the screen the outer lanes (0-1 and 5-6) run off
+ * its sides.  wide_road() draws what is missing into the widescreen
+ * margins from the same road data, with the original's colours and its
+ * rules for which faces show, as boxes in the game's own perspective:
+ *   - the view never moves sideways; on screen line y (from line 32) a lane
+ *     is LANE_W(y) columns wide, centred on column 160 (fitted to the
+ *     TREKDAT floor shapes, within a column);
+ *   - the lines of each row's back and front edges, of half and full block
+ *     tops and of a floor tile's thickness come from lane 2's shapes in the
+ *     current TREKDAT table (it is never clipped), so rows line up with the
+ *     frame exactly; the nearest row's front edge, below the screen, from a
+ *     fit of the others.
+ * Tunnels are drawn without their arches (floor and the block above). */
+#define LANE_W(y) (0.6655f * (y) + 0.5f)
+#define LANE_X(u, y) (160.0f + ((u) - 3.5f) * LANE_W(y))
+#define ROAD_LINES_W 106                /* screen lines 32..137 */
+
+typedef struct {
+    int ok;
+    float yb, yf;                       /* floor: back and front edge lines */
+    float hb, hf, fb, ff;               /* half / full block tops, back and front */
+    float hx;                           /* lane 2's left edge on the half top's last line */
+    float th;                           /* floor tile thickness (lines) */
+} RowGeo;
+static RowGeo s_geo[8][9];
+static uint16_t s_geo_seg[8];
+
+/* first and last line of a shape and the first column of its last line
+ * (left half: lines start at column 160); returns its number of lines */
+static int s_last_x;
+static int shape_lines(const uint8_t *t, uint16_t *si, int *first, int *last)
+{
+    uint16_t p = (uint16_t)(*si + 3), start = TW(t, (uint16_t)(*si + 1));
+    int n = 0;
+    while (t[p] != 0xff) { s_last_x = 160 - t[p]; p = (uint16_t)(p + 3); n++; }
+    *si = (uint16_t)(p + 1);
+    *first = start / 0x140;
+    *last = *first + n - 1;
+    return n;
+}
+
+static void row_geometry(int k)
+{
+    const uint8_t *t = SEG(DS16(0xe82 + k * 2));
+    int e, a, b;
+    s_geo_seg[k] = DS16(0xe82 + k * 2);
+    for (e = 0; e < 9; e++) {
+        RowGeo *g = &s_geo[k][e];
+        uint16_t base = (uint16_t)(e * 0x30 + 2 * 12), si;
+        int back_ok;
+        memset(g, 0, sizeof *g);
+        si = TW(t, base);
+        if (!shape_lines(t, &si, &a, &b)) continue;
+        g->yb = (float)a;
+        shape_lines(t, &si, &a, &b);                    /* side edge */
+        g->th = shape_lines(t, &si, &a, &b) > 0 ? (float)(b - a + 1) : 0.0f;
+        g->ok = 1;
+        si = TW(t, (uint16_t)(base + 4));
+        back_ok = shape_lines(t, &si, &a, &b) > 0;
+        g->hb = back_ok ? (float)a : g->yb;
+        g->hf = back_ok ? (float)(b + 1) : -1.0f;
+        g->hx = back_ok ? (float)s_last_x : -1.0f;
+        si = TW(t, (uint16_t)(base + 0xa));
+        back_ok = shape_lines(t, &si, &a, &b) > 0;
+        g->fb = back_ok ? (float)a : g->yb;
+        g->ff = back_ok ? (float)(b + 1) : -1.0f;
+    }
+    for (e = 0; e < 9; e++) {
+        RowGeo *g = &s_geo[k][e];
+        float front = 7.0f - (float)e - (float)k / 8.0f, r;
+        if (!g->ok) continue;
+        if (e < 8 && s_geo[k][e + 1].ok) g->yf = s_geo[k][e + 1].yb;
+        else if (g->hf > 0 && g->hf < ROAD_LINES_W - 1 && g->hx >= 0)
+            /* the top's front edge is at the floor's front edge lane positions */
+            g->yf = ((160.0f - g->hx + 0.15f) / 1.5f - 0.5f) / 0.6655f;
+        else g->yf = -21.066f + 225.273f / (2.47f + front);
+        r = LANE_W(g->yf) / LANE_W(g->yb);              /* heights scale with lane width */
+        if (g->hf < 0 || g->hf >= ROAD_LINES_W - 1) g->hf = g->yf - (g->yb - g->hb) * r;
+        if (g->ff < 0 || g->ff >= ROAD_LINES_W - 1) g->ff = g->yf - (g->yb - g->fb) * r;
+    }
+}
+
+static uint32_t *s_wpix;
+static int s_wpitch, s_wleft, s_wright, s_wfull;   /* s_wfull: debug, draw over the frame too */
+
+/* fill a convex polygon (screen columns, lines from 32), margins only */
+static void wide_poly(const float *x, const float *y, int n, uint8_t col)
+{
+    float ymin = y[0], ymax = y[0];
+    const uint8_t *c = g_palette[col];
+    uint32_t argb = 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2];
+    int i, line;
+    for (i = 1; i < n; i++) { if (y[i] < ymin) ymin = y[i]; if (y[i] > ymax) ymax = y[i]; }
+    for (line = (int)floorf(ymin); line < (int)ceilf(ymax); line++) {
+        float xl = 1e9f, xr = -1e9f, fy = (float)line;
+        int x0, x1, px;
+        uint32_t *out;
+        if (line < 0 || line >= ROAD_LINES_W || fy < ymin || fy >= ymax) continue;
+        for (i = 0; i < n; i++) {
+            int j = (i + 1) % n;
+            float ya = y[i], yb = y[j], xi;
+            if (ya == yb) {
+                if (fy == ya) { if (x[i] < xl) xl = x[i]; if (x[i] > xr) xr = x[i];
+                                if (x[j] < xl) xl = x[j]; if (x[j] > xr) xr = x[j]; }
+                continue;
+            }
+            if ((fy < ya && fy < yb) || (fy > ya && fy > yb)) continue;
+            xi = x[i] + (x[j] - x[i]) * (fy - ya) / (yb - ya);
+            if (xi < xl) xl = xi;
+            if (xi > xr) xr = xi;
+        }
+        if (xl > xr) continue;
+        x0 = (int)ceilf(xl - 0.15f);
+        x1 = (int)ceilf(xr - 0.15f);
+        out = (uint32_t *)((uint8_t *)s_wpix + (32 + line) * s_wpitch) + s_wleft;
+        for (px = x0; px < x1; px++)
+            if ((px < 0 && px >= -s_wleft) || (px >= 320 && px < 320 + s_wright) ||
+                (s_wfull && px >= 0 && px < 320 && !(line & 1))) out[px] = argb;
+    }
+}
+
+/* a quad given by two lane positions at the back (u at line yb, height
+ * line top_b) and front edges: the face spanning lanes u0..u1 or a side
+ * face at one lane boundary */
+static void wide_quad(float xb0, float yb0, float xb1, float yb1,
+                      float xf1, float yf1, float xf0, float yf0, uint8_t col)
+{
+    float x[4] = { xb0, xb1, xf1, xf0 }, y[4] = { yb0, yb1, yf1, yf0 };
+    wide_poly(x, y, 4, col);
+}
+
+static uint8_t wide_col(int c, int right) { return DS8(0x322 + c * 4 + right); }
+
+static void wide_cell(const RowGeo *g, uint16_t cell, int lane, int right)
+{
+    int dir = right ? -1 : 1;
+    uint8_t b0 = DS8(cell), b1 = DS8(cell + 1);
+    uint8_t near0 = DS8(cell - 0xe), near1 = DS8(cell - 0xd);
+    uint8_t in0 = DS8(cell + dir * 2), in1 = DS8(cell + dir * 2 + 1);
+    float u0 = (float)lane, u1 = (float)lane + 1.0f, us = right ? u0 : u1;
+    float bx0 = LANE_X(u0, g->yb), bx1 = LANE_X(u1, g->yb);
+    float fx0 = LANE_X(u0, g->yf), fx1 = LANE_X(u1, g->yf);
+    float bs = LANE_X(us, g->yb), fs = LANE_X(us, g->yf);
+    uint8_t c = b0 & 0xf, top = (b0 >> 4) ? (b0 >> 4) : 0x3d;
+    int type = b1 & 0xf;
+    if (type > 5) return;
+    if (c) {                                            /* floor tile */
+        wide_quad(bx0, g->yb, bx1, g->yb, fx1, g->yf, fx0, g->yf, wide_col(c, right));
+        if (!(in0 & 0xf) && g->th > 0)
+            wide_quad(bs, g->yb, bs, g->yb + g->th, fs, g->yf + g->th, fs, g->yf,
+                      wide_col(c + 0x1e, right));
+        if (!(near0 & 0xf) && g->th > 0)
+            wide_quad(fx0, g->yf, fx1, g->yf, fx1, g->yf + g->th, fx0, g->yf + g->th,
+                      wide_col(c + 0xf, right));
+    }
+    if (type == 2 || type == 3) {                       /* half block (tunnel: no arch) */
+        if (type == 2 && near1 < 2)
+            wide_quad(fx0, g->hf, fx1, g->hf, fx1, g->yf, fx0, g->yf, wide_col(0x3e, right));
+        wide_quad(bx0, g->hb, bx1, g->hb, fx1, g->hf, fx0, g->hf, wide_col(top, right));
+        if (in1 < 2)
+            wide_quad(bs, g->hb, bs, g->yb, fs, g->yf, fs, g->hf, wide_col(0x3f, right));
+    } else if (type == 4 || type == 5) {                /* full block */
+        if (type == 4 && near1 < 2)
+            wide_quad(fx0, g->hf, fx1, g->hf, fx1, g->yf, fx0, g->yf, wide_col(0x3e, right));
+        if (in1 < 2)
+            wide_quad(bs, g->hb, bs, g->yb, fs, g->yf, fs, g->hf, wide_col(0x3f, right));
+        wide_quad(bx0, g->fb, bx1, g->fb, fx1, g->ff, fx0, g->ff, wide_col(top, right));
+        if (in1 < 4)
+            wide_quad(bs, g->fb, bs, g->hb, fs, g->hf, fs, g->ff, wide_col(0x3f, right));
+        if (near1 < 4)
+            wide_quad(fx0, g->ff, fx1, g->ff, fx1, g->hf, fx0, g->hf, wide_col(0x3e, right));
+    }
+}
+
+/* draw the outer lanes into the margins: `left` / `right` columns either
+ * side of the frame, which starts `left` columns into each row of pixels */
+void wide_road(uint32_t *pixels, int pitch, int left, int right)
+{
+    uint16_t pos = R_POS;
+    int k = pos & 7, e, i;
+    if (left <= 0 && right <= 0) return;
+    if (DS16(0xe82 + k * 2) == 0) return;
+    if (s_geo_seg[k] != DS16(0xe82 + k * 2)) row_geometry(k);
+    s_wpix = pixels; s_wpitch = pitch; s_wleft = left; s_wright = right;
+    s_wfull = getenv("SKY_WIDE_FULL") != NULL;
+    for (e = 0; e < 9; e++) {                           /* far rows first */
+        const RowGeo *g = &s_geo[k][e];
+        uint16_t row;
+        if (!g->ok) continue;
+        row = (uint16_t)(0x1638 + ((pos >> 3) + 7 - e) * 14);
+        for (i = 0; i < 2; i++) {                       /* outer lane first */
+            wide_cell(g, (uint16_t)(row + i * 2), i, 0);
+            wide_cell(g, (uint16_t)(row + (6 - i) * 2), 6 - i, 1);
+        }
+    }
 }

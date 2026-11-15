@@ -133,6 +133,7 @@ void ghost_publish(const uint8_t *depth);
 #define DEPTH_FLOOR 254
 #define DEPTH_MAX   253
 void ghost_overlay(uint32_t *pixels, int pitch);
+void wide_road(uint32_t *pixels, int pitch, int left, int right);   /* render.c */
 void plat_frame(void);
 void plat_set_palette(int first, int count, const uint8_t *rgb);
 

@@ -261,6 +261,8 @@ void plat_present(void)
         ghost_overlay(frame, pitch);
         if (w > 320) {
             draw_margins((uint32_t *)pixels, pitch, left, right);
+            if (atomic_load(&s_in_run))         /* the outer lanes past the frame */
+                wide_road((uint32_t *)pixels, pitch, left, right);
             draw_panel_margins((uint32_t *)pixels, pitch, left, right);
         }
         for (int y = 0; y < 200; y++)
