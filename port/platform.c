@@ -59,21 +59,21 @@ static SDL_Renderer *s_renderer;
 static SDL_Texture  *s_texture;
 static int           s_scale = 3;
 
-/* Widescreen (16:9): the original 320x200 frame in the middle, with MARGIN
- * columns either side.  During a run the margins show the road's backdrop
- * painted out to 16:9 (wide_bg.h, from backgrounds-16x9/filled), or for a
- * road without one, the backdrop and dashboard mirrored past the frame's
- * edges; elsewhere (menus, intro) they are black.  The road itself is not
- * drawn there, so it ends at the old edges.  Natively: SKY_WIDE=1, or
- * Cmd/Alt+W. */
-#define MARGIN 53                       /* 320 + 2*53 = 426 ~ 200 * 1.2 * 16/9 */
-#define WIDE_W (320 + 2 * MARGIN)
-static int s_wide, s_wide_shown = -1;
+/* Widescreen: the original 320x200 frame in the middle, the view as wide as
+ * the window (from 4:3 up to MAX_W columns, 3440x1440 ultrawide) with margins
+ * either side.  During a run the margins show the road's backdrop painted out
+ * to ultrawide (wide_bg.h, from backgrounds-ultrawide/filled), cut to the
+ * view's width, or for a road without one, the backdrop and dashboard
+ * mirrored past the frame's edges; elsewhere (menus, intro) they are black.
+ * The road itself is not drawn there, so it ends at the old edges.
+ * Natively: SKY_WIDE=1, or Cmd/Alt+W; the page sets the view's width. */
+#include "wide_bg.h"
+#define MAX_W (320 + WIDE_BG_LEFT + WIDE_BG_RIGHT)   /* 573 ~ 200 * 1.2 * 43/18 */
+static int s_wide;
+static int s_view_w = 320;              /* the view's width in game columns */
+static int s_shown_w = -1, s_page_w;    /* what was set up; the page's choice */
 static atomic_int s_in_run;
 static atomic_int s_world = -1;         /* the road's backdrop, WORLDn.LZS */
-
-#include "wide_bg.h"
-_Static_assert(WIDE_BG_MARGIN == MARGIN, "wide_bg.h margin");
 
 /* runtime.c: a file was opened (the backdrop is WORLDn.LZS) */
 void plat_file_opened(const char *name)
@@ -88,6 +88,28 @@ void plat_in_run(int on) { atomic_store(&s_in_run, on); }
 EMSCRIPTEN_KEEPALIVE
 #endif
 void plat_set_wide(int on) { s_wide = on != 0; }
+#ifdef __EMSCRIPTEN__
+/* the page: the view's width in game columns (it sizes the canvas to fit) */
+EMSCRIPTEN_KEEPALIVE void plat_set_view_width(int w) { s_page_w = w; }
+EMSCRIPTEN_KEEPALIVE int plat_max_view_width(void) { return MAX_W; }
+#endif
+
+static int clamp_w(int w) { return w < 320 ? 320 : w > MAX_W ? MAX_W : w; }
+
+/* the view's width: 320 (4:3), or in widescreen the window's shape */
+static int view_width(void)
+{
+    if (!s_wide) return 320;
+#ifdef __EMSCRIPTEN__
+    return clamp_w(s_page_w ? s_page_w : 426);
+#else
+    {
+        int ww, wh;
+        SDL_GetWindowSize(s_window, &ww, &wh);
+        return wh > 0 ? clamp_w((int)(240.0 * ww / wh + 0.5)) : 320;
+    }
+#endif
+}
 
 int plat_init(void)
 {
@@ -113,7 +135,7 @@ int plat_init(void)
     /* 320x200 with 4:3 aspect ratio correction (pixels are 1.2x tall) */
     SDL_RenderSetLogicalSize(s_renderer, 320, 240);
     s_texture = SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888,
-                                  SDL_TEXTUREACCESS_STREAMING, WIDE_W, 200);
+                                  SDL_TEXTUREACCESS_STREAMING, MAX_W, 200);
     { const char *w = getenv("SKY_WIDE"); s_wide = w && *w && *w != '0'; }
     if (!s_texture) {
         fprintf(stderr, "texture: %s\n", SDL_GetError());
@@ -150,9 +172,16 @@ static inline uint32_t rgb(uint8_t i)
     return 0xFF000000u | ((uint32_t)c[0] << 16) | ((uint32_t)c[1] << 8) | c[2];
 }
 
-/* the side margins: the run's backdrop (DS:0x517e, the clean 320x200 picture
- * the renderer restores the road area from) mirrored at the frame's edges */
-static void draw_margins(uint32_t *pixels, int pitch)
+static inline uint32_t rgb3(const unsigned char *c)
+{
+    return 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2];
+}
+
+/* the side margins, `left` and `right` columns: the road's painted backdrop
+ * (the part nearest the frame), else the run's backdrop (DS:0x517e, the clean
+ * 320x200 picture the renderer restores the road area from) mirrored at the
+ * frame's edges */
+static void draw_margins(uint32_t *pixels, int pitch, int left, int right)
 {
     const uint8_t *bg = NULL;
     int x, y, world = atomic_load(&s_world);
@@ -160,11 +189,10 @@ static void draw_margins(uint32_t *pixels, int pitch)
         for (y = 0; y < 200; y++) {
             uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);
             const unsigned char (*m)[3] = wide_bg[world][y];
-            for (x = 0; x < MARGIN; x++) {
-                out[x] = 0xFF000000u | (uint32_t)m[x][0] << 16 | (uint32_t)m[x][1] << 8 | m[x][2];
-                out[MARGIN + 320 + x] = 0xFF000000u | (uint32_t)m[MARGIN + x][0] << 16 |
-                                        (uint32_t)m[MARGIN + x][1] << 8 | m[MARGIN + x][2];
-            }
+            for (x = 0; x < left; x++)
+                out[left - 1 - x] = rgb3(m[WIDE_BG_LEFT - 1 - x]);
+            for (x = 0; x < right; x++)
+                out[left + 320 + x] = rgb3(m[WIDE_BG_LEFT + x]);
         }
         return;
     }
@@ -172,34 +200,40 @@ static void draw_margins(uint32_t *pixels, int pitch)
     for (y = 0; y < 200; y++) {
         uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);
         const uint8_t *row = bg ? bg + y * 320 : NULL;
-        for (x = 0; x < MARGIN; x++) {
-            out[MARGIN - 1 - x]   = row ? rgb(row[x]) : 0xFF000000u;
-            out[MARGIN + 320 + x] = row ? rgb(row[319 - x]) : 0xFF000000u;
-        }
+        for (x = 0; x < left; x++)  out[left - 1 - x]   = row ? rgb(row[x]) : 0xFF000000u;
+        for (x = 0; x < right; x++) out[left + 320 + x] = row ? rgb(row[319 - x]) : 0xFF000000u;
     }
 }
 
-static uint32_t s_shown[WIDE_W * 200];  /* the last frame, for SKY_SHOT */
+static uint32_t s_shown[MAX_W * 200];   /* the last frame, for SKY_SHOT */
+static int s_shot_w = 320;
 
 void plat_present(void)
 {
     void *pixels;
     int pitch;
-    int w = s_wide ? WIDE_W : 320, left = s_wide ? MARGIN : 0;
-    SDL_Rect area = { 0, 0, w, 200 };
-    if (s_wide != s_wide_shown) {
-        s_wide_shown = s_wide;
-        SDL_RenderSetLogicalSize(s_renderer, w, 240);
+    int w, left, right;
+    SDL_Rect area;
 #ifndef __EMSCRIPTEN__
-        if (!(SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN_DESKTOP)) {
+    {   /* switching widescreen on or off in a window makes it 16:9 / 4:3 */
+        static int shown_wide;          /* starting in widescreen (SKY_WIDE) resizes too */
+        if (s_wide != shown_wide &&
+            !(SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN_DESKTOP)) {
             int ww, wh;
             SDL_GetWindowSize(s_window, &ww, &wh);
-            SDL_SetWindowSize(s_window, wh * w / 240, wh);
+            SDL_SetWindowSize(s_window, s_wide ? wh * 16 / 9 : wh * 4 / 3, wh);
         }
-#else
-        SDL_SetWindowSize(s_window, w * s_scale, 240 * s_scale);  /* the canvas */
-        EM_ASM({ if (window.skyWideChanged) window.skyWideChanged($0); }, s_wide);
+        shown_wide = s_wide;
+    }
 #endif
+    w = view_width(); left = (w - 320) / 2; right = w - 320 - left;
+    area.x = area.y = 0; area.w = w; area.h = 200;
+    if (w != s_shown_w) {
+#ifdef __EMSCRIPTEN__
+        SDL_SetWindowSize(s_window, w * s_scale, 240 * s_scale);  /* the canvas */
+#endif
+        s_shown_w = w;
+        SDL_RenderSetLogicalSize(s_renderer, w, 240);
     }
     if (SDL_LockTexture(s_texture, &area, &pixels, &pitch) == 0) {
         const uint8_t *fb = g_mem + VGA_BASE;
@@ -210,9 +244,10 @@ void plat_present(void)
             for (int x = 0; x < 320; x++) out[x] = rgb(src[x]);
         }
         ghost_overlay(frame, pitch);
-        if (s_wide) draw_margins((uint32_t *)pixels, pitch);
+        if (w > 320) draw_margins((uint32_t *)pixels, pitch, left, right);
         for (int y = 0; y < 200; y++)
             memcpy(s_shown + y * w, (uint8_t *)pixels + y * pitch, (size_t)w * 4);
+        s_shot_w = w;
         SDL_UnlockTexture(s_texture);
     }
     SDL_SetRenderDrawColor(s_renderer, 0, 0, 0, 255);
@@ -233,8 +268,8 @@ static void save_shot(const char *dir, int n)
     SDL_Surface *s;
     SDL_Color cols[256];
     int i, y;
-    if (s_wide) {                       /* the whole widescreen frame as shown */
-        s = SDL_CreateRGBSurfaceWithFormatFrom(s_shown, WIDE_W, 200, 32, WIDE_W * 4,
+    if (s_shot_w > 320) {               /* the whole widescreen frame as shown */
+        s = SDL_CreateRGBSurfaceWithFormatFrom(s_shown, s_shot_w, 200, 32, s_shot_w * 4,
                                                SDL_PIXELFORMAT_ARGB8888);
         snprintf(path, sizeof(path), "%s/shot%03d.bmp", dir, n);
         SDL_SaveBMP(s, path);
