@@ -174,9 +174,18 @@ static inline uint32_t rgb(uint8_t i)
     return 0xFF000000u | ((uint32_t)c[0] << 16) | ((uint32_t)c[1] << 8) | c[2];
 }
 
+/* the painted margins' true colours, faded with the game's palette (the
+ * road fading in at a run's start and out when it ends) */
+static int s_fade_now = 100;
 static inline uint32_t rgb3(const unsigned char *c)
 {
-    return 0xFF000000u | (uint32_t)c[0] << 16 | (uint32_t)c[1] << 8 | c[2];
+    uint32_t r = c[0], g = c[1], b = c[2];
+    if (s_fade_now < 100) {
+        r = r * (uint32_t)s_fade_now / 100;
+        g = g * (uint32_t)s_fade_now / 100;
+        b = b * (uint32_t)s_fade_now / 100;
+    }
+    return 0xFF000000u | r << 16 | g << 8 | b;
 }
 
 /* the side margins, `left` and `right` columns: the road's painted backdrop
@@ -262,6 +271,7 @@ void plat_present(void)
         }
         ghost_overlay(frame, pitch);
         if (w > 320) {
+            s_fade_now = sky_fade_level();
             draw_margins((uint32_t *)pixels, pitch, left, right);
             if (atomic_load(&s_in_run))         /* the outer lanes past the frame */
                 wide_road((uint32_t *)pixels, pitch, left, right);

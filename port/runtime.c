@@ -666,6 +666,20 @@ int16_t FUN_1000_5c67(int _handle, int _lo, int _hi, int _whence)
     return (int16_t)pos;
 }
 
+/* how bright the screen's palette is, 0-100: 1000:4b72 fades between the
+ * palette and black through 1000:4315; the widescreen margins' true-colour
+ * pictures follow it (platform.c) */
+static atomic_int s_fade = 100;
+int sky_fade_level(void) { return atomic_load(&s_fade); }
+
+static int palette_black(const uint16_t *pal)
+{
+    const uint8_t *p = g_mem + ((uint32_t)pal[0] << 4);
+    int i, n = (int16_t)pal[2] * 3;
+    for (i = 0; i < n; i++) if (p[i]) return 0;
+    return 1;
+}
+
 void FUN_1000_4315(uintptr_t p1, uintptr_t p2, int _param_3)
 {
     uint16_t param_3 = (uint16_t)_param_3;
@@ -673,6 +687,7 @@ void FUN_1000_4315(uintptr_t p1, uintptr_t p2, int _param_3)
     uint16_t *param_2 = (uint16_t *)near_ptr(p2);
     if (DS16(0x36) != 0) {
         int local_6;
+        int from_black = palette_black(param_1), to_black = palette_black(param_2);
         DS16(0x160c) = 0;
         do {
             int i, n;
@@ -680,6 +695,8 @@ void FUN_1000_4315(uintptr_t p1, uintptr_t p2, int _param_3)
             if (param_3 == 0) local_6 = 100;
             else local_6 = (int)(((int32_t)DS16(0x160c) * 100) / param_3);
             if (local_6 > 100 || DS16(0x54ac) != 0) local_6 = 100;
+            if (from_black && !to_black) atomic_store(&s_fade, local_6);
+            else if (to_black && !from_black) atomic_store(&s_fade, 100 - local_6);
             src = g_mem + ((uint32_t)param_1[0] << 4);
             dst = g_mem + ((uint32_t)param_2[0] << 4);
             out = g_ds + 0x31b4;

@@ -123,6 +123,7 @@ void plat_in_run(int on);                /* a run is under way (widescreen margi
 void plat_set_wide(int on);
 void plat_file_opened(const char *name);
 const char *sky_screen(int *n);         /* runtime.c: menu screen last opened */
+int sky_fade_level(void);               /* runtime.c: palette brightness 0-100 */
 /* runtime.c: apply a sound on/off request from the web page (game thread) */
 void sound_poll(void);
 /* ghost.c */
