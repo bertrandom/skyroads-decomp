@@ -702,7 +702,6 @@ typedef struct {
     int ok;
     float yb, yf;                       /* floor: back and front edge lines */
     float hb, hf, fb, ff;               /* half / full block tops, back and front */
-    float hx;                           /* lane 2's left edge on the half top's last line */
     float th;                           /* floor tile thickness (lines) */
 } RowGeo;
 static RowGeo s_geo[8][ROWS_W];
@@ -722,67 +721,59 @@ static int shape_lines(const uint8_t *t, uint16_t *si, int *first, int *last)
     return n;
 }
 
+/* fitted to every visible row edge, block top and floor edge in the 8
+ * TREKDAT tables (worst errors 1.3, 0.8, 0.8 and 0.9 lines): the line of
+ * a row edge `d` rows ahead of the ship, and the heights of half / full
+ * blocks and of a floor tile's edge at a floor line */
+#define EDGE_LINE(d) (-21.128f + 225.477f / (2.47f + (d)))
+#define HALF_H(y)  (0.4395f * LANE_W(y) - 0.597f)
+#define FULL_H(y)  (0.8751f * LANE_W(y) - 1.072f)
+#define THICK_H(y) (0.1492f * LANE_W(y) - 0.043f)
+
 static void row_geometry(int k)
 {
     const uint8_t *t = SEG(DS16(0xe82 + k * 2));
     int e, a, b, last = -1;
+    float ends[ROWS_W];
     s_geo_seg[k] = DS16(0xe82 + k * 2);
-    /* entries 0-10: rows 11 (far) to 1 (behind the ship) */
-    for (e = 0; e < TREK_ROWS; e++) {
+    /* the rows TREKDAT draws: entries 0-10, rows 11 (far) to 1 (behind the
+     * ship); their back edges, and front edges where the floor ends above
+     * the cut at the control panel */
+    for (e = 0; e < ROWS_W; e++) {
         RowGeo *g = &s_geo[k][e];
-        uint16_t base = (uint16_t)(e * 0x30 + 2 * 12), si;
-        int back_ok;
         memset(g, 0, sizeof *g);
-        si = TW(t, base);
-        if (!shape_lines(t, &si, &a, &b)) continue;
+        ends[e] = -1.0f;
+        if (e >= TREK_ROWS) continue;
+        {
+            uint16_t si = TW(t, (uint16_t)(e * 0x30 + 2 * 12));
+            if (!shape_lines(t, &si, &a, &b)) continue;
+        }
+        g->ok = 1;
         g->yb = (float)a;
-        g->yf = b < LANE2_CLIP ? (float)(b + 1) : -1.0f;       /* the floor ends above the cut */
-        shape_lines(t, &si, &a, &b);                    /* side edge */
-        g->th = shape_lines(t, &si, &a, &b) > 0 ? (float)(b - a + 1) : 0.0f;
-        g->ok = 1;
+        if (b < LANE2_CLIP) ends[e] = (float)(b + 1);
         last = e;
-        si = TW(t, (uint16_t)(base + 4));
-        back_ok = shape_lines(t, &si, &a, &b) > 0;
-        g->hb = back_ok ? (float)a : g->yb;
-        g->hf = back_ok ? (float)(b + 1) : -1.0f;
-        g->hx = back_ok ? (float)s_last_x : -1.0f;
-        si = TW(t, (uint16_t)(base + 0xa));
-        back_ok = shape_lines(t, &si, &a, &b) > 0;
-        g->fb = back_ok ? (float)a : g->yb;
-        g->ff = back_ok ? (float)(b + 1) : -1.0f;
     }
-    for (e = 0; e <= last; e++) {
+    /* and the nearer rows below them, down to the screen's bottom (a row
+     * reaching behind the camera ends far below it) */
+    for (e = last + 1; last >= 0 && e < ROWS_W; e++) {
+        float d = 8.0f - (float)e - (float)k / 8.0f;    /* its back edge, rows ahead */
         RowGeo *g = &s_geo[k][e];
-        float front = 7.0f - (float)e - (float)k / 8.0f, r;
-        if (!g->ok) continue;
-        if (e < last && s_geo[k][e + 1].ok) g->yf = s_geo[k][e + 1].yb;
-        else if (g->yf > 0) ;                           /* its floor ends on screen */
-        else if (g->hf > 0 && g->hf <= LANE2_CLIP && g->hx >= 0)
-            /* the top's front edge is at the floor's front edge lane positions */
-            g->yf = ((160.0f - g->hx + 0.15f) / 1.5f - 0.5f) / 0.6655f;
-        else g->yf = -21.066f + 225.273f / (2.47f + front);
-        r = LANE_W(g->yf) / LANE_W(g->yb);              /* heights scale with lane width */
-        if (g->hf < 0 || g->hf > LANE2_CLIP) g->hf = g->yf - (g->yb - g->hb) * r;
-        if (g->ff < 0 || g->ff > LANE2_CLIP) g->ff = g->yf - (g->yb - g->fb) * r;
-    }
-    /* the rows nearer than the frame shows, below its road (down to the
-     * screen's bottom): each deeper than the last by the same ratio,
-     * heights by lane width */
-    for (e = last + 1; e > 1 && e < ROWS_W; e++) {
-        RowGeo *g = &s_geo[k][e], *p = &s_geo[k][e - 1], *pp = &s_geo[k][e - 2];
-        float grow, r;
-        memset(g, 0, sizeof *g);
-        if (!p->ok || !pp->ok || p->yb <= pp->yb || p->yf >= ROAD_LINES_W) continue;
-        grow = (p->yf - p->yb) / (p->yb - pp->yb);
+        if (s_geo[k][e - 1].yb >= ROAD_LINES_W) break;
         g->ok = 1;
-        g->yb = p->yf;
-        g->yf = g->yb + (p->yf - p->yb) * grow;
-        g->hb = p->hf;
-        g->fb = p->ff;
-        r = LANE_W(g->yf) / LANE_W(g->yb);
-        g->hf = g->yf - (g->yb - g->hb) * r;
-        g->ff = g->yf - (g->yb - g->fb) * r;
-        g->th = p->th * LANE_W(g->yf) / LANE_W(p->yf);
+        if (e == last + 1 && ends[last] > 0) g->yb = ends[last];   /* seen ending */
+        else g->yb = 2.47f + d > 0.05f ? EDGE_LINE(d) : 10000.0f;
+    }
+    for (e = 0; e < ROWS_W; e++) {
+        RowGeo *g = &s_geo[k][e];
+        float d = 7.0f - (float)e - (float)k / 8.0f;    /* front edge, rows ahead */
+        if (!g->ok) continue;
+        if (e + 1 < ROWS_W && s_geo[k][e + 1].ok) g->yf = s_geo[k][e + 1].yb;
+        else if (ends[e] > 0) g->yf = ends[e];
+        else g->yf = 2.47f + d > 0.05f ? EDGE_LINE(d) : 10000.0f;
+        if (g->yf < g->yb) g->yf = g->yb;
+        g->hb = g->yb - HALF_H(g->yb);  g->hf = g->yf - HALF_H(g->yf);
+        g->fb = g->yb - FULL_H(g->yb);  g->ff = g->yf - FULL_H(g->yf);
+        g->th = THICK_H(g->yf);
     }
 }
 
