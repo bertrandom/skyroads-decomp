@@ -311,8 +311,37 @@ static void save_shot(const char *dir, int n)
     SDL_FreeSurface(s);
 }
 
+/* SKY_ROAD=n (1-30): skip the intro and menus and start road n (testing):
+ * Enter every 0.7 s (intro, main menu "Start!", and on the road select
+ * screen (gomenu.lzs) with the road set) until the run starts. */
+static void road_tick(uint64_t t)
+{
+    static int road = -1, start_n = -1, done;
+    static uint64_t press_at = 300, release_at;
+    int n;
+    const char *scr;
+    if (road < 0) { const char *r = getenv("SKY_ROAD"); road = r ? atoi(r) : 0; }
+    if (road < 1 || road > 30 || done) return;
+    if (atomic_load(&s_in_run)) { done = 1; return; }
+    scr = sky_screen(&n);
+    if (start_n < 0) start_n = n;
+    if (press_at && t >= press_at) {
+        int at_select = n != start_n && strcasecmp(scr, "gomenu.lzs") == 0;
+        if (at_select) DS16(0x933e) = (uint16_t)(road - 1);
+        hw_scancode_event(0x1c, 0x1c0d, 1);
+        press_at = 0;
+        release_at = t + 80;
+    }
+    if (release_at && t >= release_at) {
+        hw_scancode_event(0x1c, 0x1c0d, 0);
+        release_at = 0;
+        press_at = t + 620;
+    }
+}
+
 static void debug_tick(uint64_t t)
 {
+    road_tick(t);
     /* SKY_KEYS="ms:scancode[:hold_ms],..." */
     enum { MAXK = 64 };
     static int parsed, nkeys, shot_idx;

@@ -460,6 +460,11 @@ uint16_t FUN_1000_55f8(int _param_1)
 static int s_want_song = -1;            /* last song the game asked for */
 static atomic_int s_sound_req = -1;     /* from the page: 1 on, 0 off   */
 static int s_in_controls;               /* the Controls screen is showing */
+
+/* the menu screen last opened (its .lzs), for SKY_ROAD in platform.c */
+static char s_screen[16];
+static int s_screen_n;
+const char *sky_screen(int *n) { if (n) *n = s_screen_n; return s_screen; }
 static atomic_int s_cfg_reload;         /* the page changed the saved values */
 
 /* Game thread, at frame and key-wait points: finish a change made from the
@@ -607,6 +612,10 @@ uint16_t FUN_1000_5c38(uintptr_t name)
          * skyroads.cfg when it is left; any other file but the music also
          * means another screen (see sound_poll) */
         const char *n = (const char *)near_ptr(name);
+        if (strcasecmp(n, "gomenu.lzs") == 0 || strcasecmp(n, "mainmenu.lzs") == 0) {
+            snprintf(s_screen, sizeof s_screen, "%s", n);
+            s_screen_n++;
+        }
         if (strcasecmp(n, "setmenu.lzs") == 0) s_in_controls = 1;
         else if (strcasecmp(n, "muzax.lzs") != 0) s_in_controls = 0;
         plat_file_opened(n);            /* widescreen: which road backdrop */
