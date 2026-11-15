@@ -105,6 +105,8 @@ static int view_width(void)
 #else
     {
         int ww, wh;
+        const char *force = getenv("SKY_VIEW_W");   /* debug: this many columns */
+        if (force && atoi(force) > 0) return clamp_w(atoi(force));
         SDL_GetWindowSize(s_window, &ww, &wh);
         return wh > 0 ? clamp_w((int)(240.0 * ww / wh + 0.5)) : 320;
     }

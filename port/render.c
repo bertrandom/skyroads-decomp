@@ -689,7 +689,10 @@ void FUN_1000_0be3(int param_1)
  * Tunnels are drawn without their arches (floor and the block above). */
 #define LANE_W(y) (0.6655f * (y) + 0.5f)
 #define LANE_X(u, y) (160.0f + ((u) - 3.5f) * LANE_W(y))
-#define ROAD_LINES_W 106                /* screen lines 32..137 */
+#define VIEW_LINES 106                  /* the frame's road: screen lines 32..137 */
+#define ROAD_LINES_W 168                /* margins: down to the screen's bottom (the
+                                           control panel is drawn over them) */
+#define ROWS_W 11                       /* TREKDAT's 9 rows, then 2 nearer ones */
 
 typedef struct {
     int ok;
@@ -698,7 +701,7 @@ typedef struct {
     float hx;                           /* lane 2's left edge on the half top's last line */
     float th;                           /* floor tile thickness (lines) */
 } RowGeo;
-static RowGeo s_geo[8][9];
+static RowGeo s_geo[8][ROWS_W];
 static uint16_t s_geo_seg[8];
 
 /* first and last line of a shape and the first column of its last line
@@ -746,13 +749,31 @@ static void row_geometry(int k)
         float front = 7.0f - (float)e - (float)k / 8.0f, r;
         if (!g->ok) continue;
         if (e < 8 && s_geo[k][e + 1].ok) g->yf = s_geo[k][e + 1].yb;
-        else if (g->hf > 0 && g->hf < ROAD_LINES_W - 1 && g->hx >= 0)
+        else if (g->hf > 0 && g->hf < VIEW_LINES - 1 && g->hx >= 0)
             /* the top's front edge is at the floor's front edge lane positions */
             g->yf = ((160.0f - g->hx + 0.15f) / 1.5f - 0.5f) / 0.6655f;
         else g->yf = -21.066f + 225.273f / (2.47f + front);
         r = LANE_W(g->yf) / LANE_W(g->yb);              /* heights scale with lane width */
-        if (g->hf < 0 || g->hf >= ROAD_LINES_W - 1) g->hf = g->yf - (g->yb - g->hb) * r;
-        if (g->ff < 0 || g->ff >= ROAD_LINES_W - 1) g->ff = g->yf - (g->yb - g->fb) * r;
+        if (g->hf < 0 || g->hf >= VIEW_LINES - 1) g->hf = g->yf - (g->yb - g->hb) * r;
+        if (g->ff < 0 || g->ff >= VIEW_LINES - 1) g->ff = g->yf - (g->yb - g->fb) * r;
+    }
+    /* the rows nearer than the frame shows, below its road: each a row
+     * deeper than the last by the same ratio, heights by lane width */
+    for (e = 9; e < ROWS_W; e++) {
+        RowGeo *g = &s_geo[k][e], *p = &s_geo[k][e - 1], *pp = &s_geo[k][e - 2];
+        float grow, r;
+        memset(g, 0, sizeof *g);
+        if (!p->ok || !pp->ok || p->yb <= pp->yb) continue;
+        grow = (p->yf - p->yb) / (p->yb - pp->yb);
+        g->ok = 1;
+        g->yb = p->yf;
+        g->yf = g->yb + (p->yf - p->yb) * grow;
+        g->hb = p->hf;
+        g->fb = p->ff;
+        r = LANE_W(g->yf) / LANE_W(g->yb);
+        g->hf = g->yf - (g->yb - g->hb) * r;
+        g->ff = g->yf - (g->yb - g->fb) * r;
+        g->th = p->th * LANE_W(g->yf) / LANE_W(p->yf);
     }
 }
 
@@ -859,7 +880,7 @@ void wide_road(uint32_t *pixels, int pitch, int left, int right)
     if (s_geo_seg[k] != DS16(0xe82 + k * 2)) row_geometry(k);
     s_wpix = pixels; s_wpitch = pitch; s_wleft = left; s_wright = right;
     s_wfull = getenv("SKY_WIDE_FULL") != NULL;
-    for (e = 0; e < 9; e++) {                           /* far rows first */
+    for (e = 0; e < ROWS_W; e++) {                      /* far rows first */
         const RowGeo *g = &s_geo[k][e];
         uint16_t row;
         if (!g->ok) continue;
