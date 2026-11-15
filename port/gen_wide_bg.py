@@ -23,7 +23,8 @@ rows, and drawn over the backdrop's.
 MENUDIR holds the menu screens painted out the same way (same size):
 mainmenu_nologo_filled.png (the intro and main menu's checkerboard) and
 controls_filled.png (the blue backdrop of the Controls, road selection and
-help screens).  Their margins use only colours of the screens' own
+help screens; it blends into the original picture near its edges, so the
+frame's own outer WIDE_BG_EDGE columns are kept too).  Their margins use only colours of the screens' own
 palettes, so they are kept as colour numbers into a small table per
 picture: platform.c finds the palette index each colour has on the screen
 and draws through the live palette (fades, the intro's colour cycling).
@@ -104,7 +105,7 @@ with open(out, 'w') as f:
         f.write(",".join(str(b) for b in pdata[i:i + 24]) + ",\n")
     f.write("};\n")
     # the menu screens' margins: colour numbers into a table per picture
-    menu_have, menu_cols, menu_px = [], [], bytearray()
+    menu_have, menu_cols, menu_px, menu_edge = [], [], bytearray(), bytearray()
     for name in MENUS:
         path = os.path.join(menu_dir, name) if menu_dir else ''
         cols = []
@@ -113,20 +114,25 @@ with open(out, 'w') as f:
                                  check=True, capture_output=True).stdout
             assert len(rgb) == W * H * 3, '%s is not %dx%d' % (path, W, H)
             index = {}
+            def number(c):
+                if c not in index:
+                    index[c] = len(cols)
+                    cols.append(c)
+                return index[c]
             for y in range(ROWS):
-                line = rgb[int((y + 0.5) * H / ROWS) * W * 3:][:W * 3]
-                line = line[:LEFT * 3] + line[(LEFT + 320) * 3:]
+                full = rgb[int((y + 0.5) * H / ROWS) * W * 3:][:W * 3]
+                line = full[:LEFT * 3] + full[(LEFT + 320) * 3:]
                 for k in range(0, len(line), 3):
-                    c = line[k:k + 3]
-                    if c not in index:
-                        index[c] = len(cols)
-                        cols.append(c)
-                    menu_px.append(index[c])
+                    menu_px.append(number(line[k:k + 3]))
+                edge = full[LEFT * 3:(LEFT + EDGE) * 3] + full[(LEFT + 320 - EDGE) * 3:(LEFT + 320) * 3]
+                for k in range(0, len(edge), 3):
+                    menu_edge.append(number(edge[k:k + 3]))
             assert len(cols) <= MAX_COLS, '%s: more than %d colours' % (path, MAX_COLS)
             menu_have.append(1)
         else:
             menu_have.append(0)
             menu_px += bytes(ROWS * (LEFT + RIGHT))
+            menu_edge += bytes(ROWS * 2 * EDGE)
         menu_cols.append(cols)
     f.write("/* the menu screens' margins (0 intro/main menu, 1 controls/road selection/help):\n"
             " * colour numbers into wide_menu_rgb, [menu][row][left %d | right %d] */\n" % (LEFT, RIGHT))
@@ -135,6 +141,11 @@ with open(out, 'w') as f:
     f.write("static const unsigned char wide_menu_rgb[2][%d][3] = {\n" % MAX_COLS)
     for cols in menu_cols:
         f.write("  { %s },\n" % ", ".join("{%d,%d,%d}" % tuple(c) for c in cols) if cols else "  { {0} },\n")
+    f.write("};\n")
+    f.write("/* the frame's own outer columns as painted, [menu][row][left %d | right %d] */\n" % (EDGE, EDGE))
+    f.write("static const unsigned char wide_menu_edge[2][%d][%d] = {\n" % (ROWS, 2 * EDGE))
+    for i in range(0, len(menu_edge), 32):
+        f.write(",".join(str(b) for b in menu_edge[i:i + 32]) + ",\n")
     f.write("};\n")
     f.write("static const unsigned char wide_menu[2][%d][%d] = {\n" % (ROWS, max(LEFT + RIGHT, 2)))
     for i in range(0, len(menu_px), 32):

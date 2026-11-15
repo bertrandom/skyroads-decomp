@@ -248,6 +248,15 @@ static int draw_menu_margins(uint32_t *pixels, int pitch, int left, int right)
         const unsigned char *m = wide_menu[menu][y];
         for (x = 0; x < left; x++)  out[left - 1 - x]   = col[m[WIDE_BG_LEFT - 1 - x]];
         for (x = 0; x < right; x++) out[left + 320 + x] = col[m[WIDE_BG_LEFT + x]];
+        /* the Controls backdrop is painted blending into the picture: its
+         * screens' outer columns as painted too (nothing is drawn there) */
+        if (menu == 1) {
+            const unsigned char *e = wide_menu_edge[menu][y];
+            for (x = 0; x < WIDE_BG_EDGE; x++) {
+                out[left + x] = col[e[x]];
+                out[left + 320 - WIDE_BG_EDGE + x] = col[e[WIDE_BG_EDGE + x]];
+            }
+        }
     }
     return 1;
 }
