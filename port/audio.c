@@ -9,7 +9,22 @@
 #include "compat.h"
 #include "protos.h"
 #include <math.h>
+#include <stdatomic.h>
 #include <SDL.h>
+
+/* The volume, 0-100 (the page's slider, natively the - and = keys): the mix
+ * is scaled by (volume / 100)^2, so 100 is full scale (the music's peaks
+ * near it) and the default, 60, about 9 dB below. */
+static atomic_int s_volume = 60;
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+EMSCRIPTEN_KEEPALIVE
+#endif
+void sky_set_volume(int v) { atomic_store(&s_volume, v < 0 ? 0 : v > 100 ? 100 : v); }
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_KEEPALIVE
+#endif
+int sky_volume(void) { return atomic_load(&s_volume); }
 
 #define DS16(off) (*(volatile uint16_t *)(g_ds + (uint16_t)(off)))
 #define DS8(off)  (*(volatile uint8_t  *)(g_ds + (uint16_t)(off)))
@@ -138,7 +153,9 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
 {
     int16_t *out = (int16_t *)stream;
     int i, n = len / 2;
+    double gain = atomic_load(&s_volume) / 100.0;
     (void)ud;
+    gain *= gain;
     for (i = 0; i < n; i++) {
         double v;
 #ifdef __EMSCRIPTEN__
@@ -159,6 +176,7 @@ static void audio_cb(void *ud, Uint8 *stream, int len)
             s_spk_phase -= floor(s_spk_phase);
             v += (s_spk_phase < 0.5 ? 0.12 : -0.12);
         }
+        v *= gain;
         if (v > 1) v = 1;
         if (v < -1) v = -1;
         out[i] = (int16_t)(v * 32000);

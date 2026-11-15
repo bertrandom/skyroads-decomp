@@ -106,6 +106,10 @@ EMSCRIPTEN_KEEPALIVE void plat_set_view_width(int w) { s_page_w = w; }
 EMSCRIPTEN_KEEPALIVE int plat_max_view_width(void) { return MAX_W; }
 #endif
 
+#ifndef __EMSCRIPTEN__
+static void volume_load(void);
+#endif
+
 static int clamp_w(int w) { return w < 320 ? 320 : w > (MAX_W & ~1) ? (MAX_W & ~1) : w; }
 
 /* the view's width: 320 (4:3), or in widescreen the window's shape.  It is
@@ -158,6 +162,9 @@ int plat_init(void)
     s_texture = SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888,
                                   SDL_TEXTUREACCESS_STREAMING, MAX_W, 200);
     { const char *w = getenv("SKY_WIDE"); s_wide = w && *w && *w != '0'; }
+#ifndef __EMSCRIPTEN__
+    volume_load();
+#endif
     if (!s_texture) {
         fprintf(stderr, "texture: %s\n", SDL_GetError());
         return -1;
@@ -528,6 +535,31 @@ EMSCRIPTEN_KEEPALIVE void sky_touch_key(int key, int down)
 }
 #endif
 
+#ifndef __EMSCRIPTEN__
+const char *plat_save_path(const char *file, char *buf, size_t n);
+
+/* the volume (audio.c), kept in the save folder as "volume" (0-100) */
+static void volume_load(void)
+{
+    char path[1024];
+    FILE *f = fopen(plat_save_path("volume", path, sizeof path), "r");
+    int v;
+    if (f) {
+        if (fscanf(f, "%d", &v) == 1) sky_set_volume(v);
+        fclose(f);
+    }
+}
+
+static void volume_step(int d)
+{
+    char path[1024];
+    FILE *f;
+    sky_set_volume(sky_volume() + d);
+    f = fopen(plat_save_path("volume", path, sizeof path), "w");
+    if (f) { fprintf(f, "%d\n", sky_volume()); fclose(f); }
+}
+#endif
+
 /* One main-thread iteration: events, input, presentation.  Returns 0 when
  * the user asked to quit. */
 static int frame_step(void)
@@ -551,9 +583,14 @@ static int frame_step(void)
                     s_wide = !s_wide;
                     break;
                 }
-                /* W: widescreen on/off, S: sound on/off (the game uses
-                 * neither; the page has its own, see web/shell.html) */
+                /* W: widescreen on/off, S: sound on/off, - and =: volume
+                 * down / up (the game uses none of them; the page has its
+                 * own, see web/shell.html) */
                 if (!(e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
+                    if (e.key.keysym.sym == SDLK_MINUS || e.key.keysym.sym == SDLK_EQUALS) {
+                        volume_step(e.key.keysym.sym == SDLK_MINUS ? -10 : 10);
+                        break;
+                    }
                     if (e.key.keysym.sym == SDLK_w) {
                         if (!e.key.repeat) s_wide = !s_wide;
                         break;
@@ -568,7 +605,8 @@ static int frame_step(void)
                 break;
             case SDL_KEYUP:
 #ifndef __EMSCRIPTEN__
-                if ((e.key.keysym.sym == SDLK_w || e.key.keysym.sym == SDLK_s) &&
+                if ((e.key.keysym.sym == SDLK_w || e.key.keysym.sym == SDLK_s ||
+                     e.key.keysym.sym == SDLK_MINUS || e.key.keysym.sym == SDLK_EQUALS) &&
                     !(e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)))
                     break;
 #endif

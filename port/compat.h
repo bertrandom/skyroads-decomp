@@ -167,6 +167,8 @@ void     video_blit(void);
 
 /* Audio: 8-bit unsigned mono output queue (PC speaker / DAC emulation). */
 void snd_init(void);
+void sky_set_volume(int v);           /* 0-100 */
+int  sky_volume(void);
 void snd_pause(void);
 void snd_write_dac(uint8_t sample);
 void snd_speaker_on(uint16_t divisor);
