@@ -1037,6 +1037,7 @@ int kb_key_available(void);
 /* 1000:5f8e  DOS 0Bh: key available? */
 uint16_t FUN_1000_5f8e(void)
 {
+    sound_poll();               /* the intro waits here: the page's sound changes */
     if (kb_key_available()) return 1;
     SDL_Delay_hint();
     return 0;

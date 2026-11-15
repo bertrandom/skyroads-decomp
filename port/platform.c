@@ -735,8 +735,8 @@ struct SkyFile {
  *     u16 roads[30]  times each road has been completed
  * The browser keeps the values themselves in localStorage instead of the
  * file: skyroads.controls ("keyboard" / "joystick" / "mouse"),
- * skyroads.sound ("on" / "off") and skyroads.roads (JSON array of 30
- * counts).  Reading the file builds the block from them; writing it stores
+ * skyroads.sound ("on" / "off"; off when not set: the page starts silent)
+ * and skyroads.roads (JSON array of 30 counts).  Reading the file builds the block from them; writing it stores
  * them back. */
 #define CFG_SIZE  66
 #define CFG_ROADS 30
@@ -756,7 +756,7 @@ static void cfg_build(uint8_t *b)
         var roads = [];
         var c = ({ keyboard: 0, joystick: 1, mouse: 2 })[get('skyroads.controls')];
         HEAP32[p] = c === undefined ? 0 : c;
-        HEAP32[p + 1] = get('skyroads.sound') === 'off' ? 1 : 0;
+        HEAP32[p + 1] = get('skyroads.sound') === 'on' ? 0 : 1;     /* off until turned on */
         try { roads = JSON.parse(get('skyroads.roads') || '[]'); } catch (e) {}
         if (!Array.isArray(roads)) roads = [];
         for (var i = 0; i < n; i++)
