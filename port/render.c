@@ -692,7 +692,11 @@ void FUN_1000_0be3(int param_1)
 #define VIEW_LINES 106                  /* the frame's road: screen lines 32..137 */
 #define ROAD_LINES_W 168                /* margins: down to the screen's bottom (the
                                            control panel is drawn over them) */
-#define ROWS_W 11                       /* TREKDAT's 9 rows, then 2 nearer ones */
+#define TREK_ROWS 11                    /* TREKDAT entries: rows 11..1 */
+#define LANE2_CLIP 97                   /* lane 2's shapes stop at the control panel
+                                           (screen line 129); a shape reaching it
+                                           is cut off there */
+#define ROWS_W 14                       /* and up to 3 nearer ones, made up */
 
 typedef struct {
     int ok;
@@ -721,9 +725,10 @@ static int shape_lines(const uint8_t *t, uint16_t *si, int *first, int *last)
 static void row_geometry(int k)
 {
     const uint8_t *t = SEG(DS16(0xe82 + k * 2));
-    int e, a, b;
+    int e, a, b, last = -1;
     s_geo_seg[k] = DS16(0xe82 + k * 2);
-    for (e = 0; e < 9; e++) {
+    /* entries 0-10: rows 11 (far) to 1 (behind the ship) */
+    for (e = 0; e < TREK_ROWS; e++) {
         RowGeo *g = &s_geo[k][e];
         uint16_t base = (uint16_t)(e * 0x30 + 2 * 12), si;
         int back_ok;
@@ -731,9 +736,11 @@ static void row_geometry(int k)
         si = TW(t, base);
         if (!shape_lines(t, &si, &a, &b)) continue;
         g->yb = (float)a;
+        g->yf = b < LANE2_CLIP ? (float)(b + 1) : -1.0f;       /* the floor ends above the cut */
         shape_lines(t, &si, &a, &b);                    /* side edge */
         g->th = shape_lines(t, &si, &a, &b) > 0 ? (float)(b - a + 1) : 0.0f;
         g->ok = 1;
+        last = e;
         si = TW(t, (uint16_t)(base + 4));
         back_ok = shape_lines(t, &si, &a, &b) > 0;
         g->hb = back_ok ? (float)a : g->yb;
@@ -744,26 +751,28 @@ static void row_geometry(int k)
         g->fb = back_ok ? (float)a : g->yb;
         g->ff = back_ok ? (float)(b + 1) : -1.0f;
     }
-    for (e = 0; e < 9; e++) {
+    for (e = 0; e <= last; e++) {
         RowGeo *g = &s_geo[k][e];
         float front = 7.0f - (float)e - (float)k / 8.0f, r;
         if (!g->ok) continue;
-        if (e < 8 && s_geo[k][e + 1].ok) g->yf = s_geo[k][e + 1].yb;
-        else if (g->hf > 0 && g->hf < VIEW_LINES - 1 && g->hx >= 0)
+        if (e < last && s_geo[k][e + 1].ok) g->yf = s_geo[k][e + 1].yb;
+        else if (g->yf > 0) ;                           /* its floor ends on screen */
+        else if (g->hf > 0 && g->hf <= LANE2_CLIP && g->hx >= 0)
             /* the top's front edge is at the floor's front edge lane positions */
             g->yf = ((160.0f - g->hx + 0.15f) / 1.5f - 0.5f) / 0.6655f;
         else g->yf = -21.066f + 225.273f / (2.47f + front);
         r = LANE_W(g->yf) / LANE_W(g->yb);              /* heights scale with lane width */
-        if (g->hf < 0 || g->hf >= VIEW_LINES - 1) g->hf = g->yf - (g->yb - g->hb) * r;
-        if (g->ff < 0 || g->ff >= VIEW_LINES - 1) g->ff = g->yf - (g->yb - g->fb) * r;
+        if (g->hf < 0 || g->hf > LANE2_CLIP) g->hf = g->yf - (g->yb - g->hb) * r;
+        if (g->ff < 0 || g->ff > LANE2_CLIP) g->ff = g->yf - (g->yb - g->fb) * r;
     }
-    /* the rows nearer than the frame shows, below its road: each a row
-     * deeper than the last by the same ratio, heights by lane width */
-    for (e = 9; e < ROWS_W; e++) {
+    /* the rows nearer than the frame shows, below its road (down to the
+     * screen's bottom): each deeper than the last by the same ratio,
+     * heights by lane width */
+    for (e = last + 1; e > 1 && e < ROWS_W; e++) {
         RowGeo *g = &s_geo[k][e], *p = &s_geo[k][e - 1], *pp = &s_geo[k][e - 2];
         float grow, r;
         memset(g, 0, sizeof *g);
-        if (!p->ok || !pp->ok || p->yb <= pp->yb) continue;
+        if (!p->ok || !pp->ok || p->yb <= pp->yb || p->yf >= ROAD_LINES_W) continue;
         grow = (p->yf - p->yb) / (p->yb - pp->yb);
         g->ok = 1;
         g->yb = p->yf;
@@ -779,6 +788,8 @@ static void row_geometry(int k)
 
 static uint32_t *s_wpix;
 static int s_wpitch, s_wleft, s_wright, s_wfull;   /* s_wfull: debug, draw over the frame too */
+static int s_wdiff;                     /* debug: mark where the model and the frame differ */
+static uint32_t s_model[VIEW_LINES * 320];
 
 /* fill a convex polygon (screen columns, lines from 32), margins only */
 static void wide_poly(const float *x, const float *y, int n, uint8_t col)
@@ -810,6 +821,8 @@ static void wide_poly(const float *x, const float *y, int n, uint8_t col)
         x0 = (int)ceilf(xl - 0.15f);
         x1 = (int)ceilf(xr - 0.15f);
         out = (uint32_t *)((uint8_t *)s_wpix + (32 + line) * s_wpitch) + s_wleft;
+        if (s_wdiff && line < VIEW_LINES)
+            for (px = x0 < 0 ? 0 : x0; px < x1 && px < 320; px++) s_model[line * 320 + px] = argb;
         for (px = x0; px < x1; px++)
             if ((px < 0 && px >= -s_wleft) || (px >= 320 && px < 320 + s_wright) ||
                 (s_wfull && px >= 0 && px < 320 && !(line & 1))) out[px] = argb;
@@ -873,13 +886,15 @@ static void wide_cell(const RowGeo *g, uint16_t cell, int lane, int right)
  * side of the frame, which starts `left` columns into each row of pixels */
 void wide_road(uint32_t *pixels, int pitch, int left, int right)
 {
-    uint16_t pos = R_POS;
+    uint16_t pos = R_OPOS;                  /* the frame on screen (set after it is shown) */
     int k = pos & 7, e, i;
     if (left <= 0 && right <= 0) return;
     if (DS16(0xe82 + k * 2) == 0) return;
     if (s_geo_seg[k] != DS16(0xe82 + k * 2)) row_geometry(k);
     s_wpix = pixels; s_wpitch = pitch; s_wleft = left; s_wright = right;
     s_wfull = getenv("SKY_WIDE_FULL") != NULL;
+    s_wdiff = getenv("SKY_WIDE_DIFF") != NULL;
+    if (s_wdiff) memset(s_model, 0, sizeof s_model);
     for (e = 0; e < ROWS_W; e++) {                      /* far rows first */
         const RowGeo *g = &s_geo[k][e];
         uint16_t row;
@@ -888,6 +903,14 @@ void wide_road(uint32_t *pixels, int pitch, int left, int right)
         for (i = 0; i < 2; i++) {                       /* outer lane first */
             wide_cell(g, (uint16_t)(row + i * 2), i, 0);
             wide_cell(g, (uint16_t)(row + (6 - i) * 2), 6 - i, 1);
+        }
+    }
+    if (s_wdiff) {
+        int y, x;
+        for (y = 0; y < VIEW_LINES; y++) {
+            uint32_t *out = (uint32_t *)((uint8_t *)pixels + (32 + y) * pitch) + left;
+            for (x = 0; x < 320; x++)
+                if (s_model[y * 320 + x] && s_model[y * 320 + x] != out[x]) out[x] = 0xFFFF00FFu;
         }
     }
 }
