@@ -216,6 +216,27 @@ static void draw_margins(uint32_t *pixels, int pitch, int left, int right)
     }
 }
 
+/* the frame's own outer columns, where the backdrop shows (the pixel is the
+ * clean backdrop's, DS:0x517e) above the control panel, as painted: the
+ * original pictures can have a dark line at their edges (Blue Planet) that
+ * would stand out against the painted margins */
+static void draw_frame_edges(uint32_t *frame, int pitch)
+{
+    int x, y, world = atomic_load(&s_world);
+    const uint8_t *fb = g_mem + VGA_BASE, *bg;
+    if (!atomic_load(&s_in_run) || world < 0 || !wide_bg_have[world] || !DS16(0x517e)) return;
+    bg = g_mem + ((uint32_t)DS16(0x517e) << 4);
+    for (y = 0; y < 129; y++) {
+        uint32_t *out = (uint32_t *)((uint8_t *)frame + y * pitch);
+        const unsigned char (*m)[3] = wide_bg_edge[world][y];
+        for (x = 0; x < WIDE_BG_EDGE; x++) {
+            int l = y * 320 + x, r = y * 320 + 320 - WIDE_BG_EDGE + x;
+            if (fb[l] == bg[l]) out[x] = rgb3(m[x]);
+            if (fb[r] == bg[r]) out[320 - WIDE_BG_EDGE + x] = rgb3(m[WIDE_BG_EDGE + x]);
+        }
+    }
+}
+
 /* the control panel painted out over the margins (rows 129-199, runs only) */
 static void draw_panel_margins(uint32_t *pixels, int pitch, int left, int right)
 {
@@ -269,9 +290,12 @@ void plat_present(void)
             const uint8_t *src = fb + y * 320;
             for (int x = 0; x < 320; x++) out[x] = rgb(src[x]);
         }
-        ghost_overlay(frame, pitch);
         if (w > 320) {
             s_fade_now = sky_fade_level();
+            draw_frame_edges(frame, pitch);
+        }
+        ghost_overlay(frame, pitch);
+        if (w > 320) {
             draw_margins((uint32_t *)pixels, pitch, left, right);
             if (atomic_load(&s_in_run))         /* the outer lanes past the frame */
                 wide_road((uint32_t *)pixels, pitch, left, right);

@@ -9,6 +9,9 @@ columns from the left, and painted on either side.  Only the side margins
 are kept, at the game's 200 rows: the PNG row whose middle is nearest each
 game row's middle (the inverse of a nearest-neighbour stretch).  The game
 shows as much of them as the window's shape leaves room for.
+The frame's own outer WIDE_BG_EDGE columns are kept as painted too: some
+backdrops (Blue Planet) have a dark line at the original picture's edges,
+which the game covers where the backdrop shows.
 Worlds without a picture are marked missing (platform.c mirrors the
 backdrop instead).
 
@@ -36,10 +39,13 @@ LEFT = (W - 320) // 2
 RIGHT = W - 320 - LEFT
 have = []
 data = bytearray()
+edge = bytearray()   # the frame's own outer EDGE columns, painted
+EDGE = 3
 for path in paths:
     if not os.path.exists(path):
         have.append(0)
         data += bytes(ROWS * (LEFT + RIGHT) * 3)
+        edge += bytes(ROWS * 2 * EDGE * 3)
         continue
     rgb = subprocess.run(['magick', path, '-depth', '8', 'rgb:-'],
                          check=True, capture_output=True).stdout
@@ -48,6 +54,7 @@ for path in paths:
     for y in range(ROWS):
         line = rgb[int((y + 0.5) * H / ROWS) * W * 3:][:W * 3]
         data += line[:LEFT * 3] + line[(LEFT + 320) * 3:]
+        edge += line[LEFT * 3:(LEFT + EDGE) * 3] + line[(LEFT + 320 - EDGE) * 3:(LEFT + 320) * 3]
 with open(out, 'w') as f:
     f.write("/* generated from %s by gen_wide_bg.py */\n" % src)
     f.write("#define WIDE_BG_LEFT %d\n#define WIDE_BG_RIGHT %d\n" % (max(LEFT, 1), max(RIGHT, 1)))
@@ -56,6 +63,12 @@ with open(out, 'w') as f:
     f.write("static const unsigned char wide_bg[10][%d][%d][3] = {\n" % (ROWS, max(LEFT + RIGHT, 2)))
     for i in range(0, len(data), 24):
         f.write(",".join(str(b) for b in data[i:i + 24]) + ",\n")
+    f.write("};\n")
+    f.write("/* the frame's outer columns as painted: [world][row][left %d | right %d][rgb] */\n" % (EDGE, EDGE))
+    f.write("#define WIDE_BG_EDGE %d\n" % EDGE)
+    f.write("static const unsigned char wide_bg_edge[10][%d][%d][3] = {\n" % (ROWS, 2 * EDGE))
+    for i in range(0, len(edge), 24):
+        f.write(",".join(str(b) for b in edge[i:i + 24]) + ",\n")
     f.write("};\n")
     pdata = None
     if panel and os.path.exists(panel) and W > 320:
