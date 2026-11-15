@@ -453,10 +453,27 @@ static int frame_step(void)
                     s_wide = !s_wide;
                     break;
                 }
+                /* W: widescreen on/off, S: sound on/off (the game uses
+                 * neither; the page has its own, see web/shell.html) */
+                if (!(e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
+                    if (e.key.keysym.sym == SDLK_w) {
+                        if (!e.key.repeat) s_wide = !s_wide;
+                        break;
+                    }
+                    if (e.key.keysym.sym == SDLK_s) {
+                        if (!e.key.repeat) sky_set_sound(!sky_sound_on());
+                        break;
+                    }
+                }
 #endif
                 hw_key_event(&e.key, 1);
                 break;
             case SDL_KEYUP:
+#ifndef __EMSCRIPTEN__
+                if ((e.key.keysym.sym == SDLK_w || e.key.keysym.sym == SDLK_s) &&
+                    !(e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI)))
+                    break;
+#endif
                 hw_key_event(&e.key, 0);
                 break;
             case SDL_MOUSEMOTION:

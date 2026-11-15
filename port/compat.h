@@ -120,6 +120,8 @@ extern uint8_t g_palette[256][3];
 
 void plat_present(void);
 void plat_in_run(int on);                /* a run is under way (widescreen margins) */
+int  sky_sound_on(void);                  /* the game's sound setting */
+void sky_set_sound(int on);
 void plat_set_wide(int on);
 void plat_file_opened(const char *name);
 const char *sky_screen(int *n);         /* runtime.c: menu screen last opened */

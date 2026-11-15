@@ -493,6 +493,12 @@ void sound_poll(void)
     }
     on = atomic_exchange(&s_sound_req, -1);
     if (on < 0 || !g_ds) return;
+#ifndef __EMSCRIPTEN__
+    if (!on && DS16(0x4528) != 0) {     /* natively off stops the music */
+        FUN_1000_5889();
+        DS16(0xbc2) = 0xffff;
+    }
+#endif
     /* off from the page only mutes: the song plays on unheard (the page
      * stops the audio output) and continues when sound comes back on; a
      * song asked for meanwhile is not started (FUN_1000_57a8), so start it */
@@ -503,22 +509,26 @@ void sound_poll(void)
     if (controls) FUN_1000_4ae2();      /* Controls screen: move the marks */
 }
 
-#ifdef __EMSCRIPTEN__
+#ifndef __EMSCRIPTEN__
+#define EMSCRIPTEN_KEEPALIVE
+#endif
 EMSCRIPTEN_KEEPALIVE int sky_sound_on(void) { return g_ds && DS16(0x4528) == 0; }
 
+#ifdef __EMSCRIPTEN__
 /* main thread: skyroads.cfg's values (localStorage) changed, re-read them */
 EMSCRIPTEN_KEEPALIVE void sky_reload_cfg(void) { atomic_store(&s_cfg_reload, 1); }
+#endif
 
-/* main thread (settings menu): switch the setting at once (new songs and
- * effects follow it), the rest in sound_poll.  The music is not stopped:
- * the page mutes the output (sky_audio_mute) so the song carries on. */
+/* main thread (settings menu, the S key): switch the setting at once (new
+ * songs and effects follow it), the rest in sound_poll.  On the web the
+ * music is not stopped: the page mutes the output (sky_audio_mute) so the
+ * song carries on; natively sound_poll stops it. */
 EMSCRIPTEN_KEEPALIVE void sky_set_sound(int on)
 {
     if (!g_ds || (DS16(0x4528) == 0) == (on != 0)) return;
     DS16(0x4528) = on ? 0 : 1;
     atomic_store(&s_sound_req, on != 0);
 }
-#endif
 
 void FUN_1000_57a8(int _param_1)
 {

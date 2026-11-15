@@ -34,7 +34,8 @@ same paths relative to the executable / app `Resources` folder.
 Controls are the original ones: arrows to steer/accelerate/brake, Space to jump,
 Esc to go back, Enter to select.  A game controller is mapped to the arrow keys,
 A = jump, Start = Enter, B = Esc; the in-game *joystick* and *mouse* control
-modes also work.  Alt/Cmd+Enter toggles full screen, Cmd+Q quits.
+modes also work.  Alt/Cmd+Enter toggles full screen, W widescreen (also
+Cmd/Alt+W), S the sound (the game's own setting, saved), Cmd+Q quits.
 Progress (`skyroads.cfg`) is stored in
 `~/Library/Application Support/SkyRoads/SkyRoads/`.
 
