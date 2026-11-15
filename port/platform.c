@@ -64,7 +64,9 @@ static int           s_scale = 3;
  * either side.  During a run the margins show the road's backdrop painted out
  * to ultrawide (wide_bg.h, from backgrounds-ultrawide/filled), cut to the
  * view's width, or for a road without one, the backdrop and dashboard
- * mirrored past the frame's edges; elsewhere (menus, intro) they are black.
+ * mirrored past the frame's edges.  The intro and the menu screens show
+ * their pictures painted out too (wide_menu, from menu-backgrounds/4x3/
+ * filled); elsewhere the margins are black.
  * The road itself is not drawn there, so it ends at the old edges.
  * Natively: SKY_WIDE=1, or Cmd/Alt+W; the page sets the view's width. */
 #include "wide_bg.h"
@@ -74,13 +76,22 @@ static int s_view_w = 320;              /* the view's width in game columns */
 static int s_shown_w = -1, s_page_w;    /* what was set up; the page's choice */
 static atomic_int s_in_run;
 static atomic_int s_world = -1;         /* the road's backdrop, WORLDn.LZS */
+static atomic_int s_menu = -1;          /* the menu screen's painted margins */
 
-/* runtime.c: a file was opened (the backdrop is WORLDn.LZS) */
+/* runtime.c: a file was opened: the road's backdrop is WORLDn.LZS; the menu
+ * screens' pictures are INTRO.LZS (the intro, and the main menu, which loads
+ * it again after MAINMENU.LZS), SETMENU, GOMENU and HELPMENU.LZS */
 void plat_file_opened(const char *name)
 {
     if (strncasecmp(name, "world", 5) == 0 && name[5] >= '0' && name[5] <= '9' &&
-        strcasecmp(name + 6, ".lzs") == 0)
+        strcasecmp(name + 6, ".lzs") == 0) {
         atomic_store(&s_world, name[5] - '0');
+        atomic_store(&s_menu, -1);
+    } else if (strcasecmp(name, "intro.lzs") == 0 || strcasecmp(name, "mainmenu.lzs") == 0)
+        atomic_store(&s_menu, 0);
+    else if (strcasecmp(name, "setmenu.lzs") == 0 || strcasecmp(name, "gomenu.lzs") == 0 ||
+             strcasecmp(name, "helpmenu.lzs") == 0)
+        atomic_store(&s_menu, 1);
 }
 
 void plat_in_run(int on) { atomic_store(&s_in_run, on); }
@@ -188,6 +199,59 @@ static inline uint32_t rgb3(const unsigned char *c)
     return 0xFF000000u | r << 16 | g << 8 | b;
 }
 
+/* a menu screen's painted margins (wide_menu): each colour is drawn as the
+ * palette index the screen's picture uses for it, through the live palette,
+ * so the margins fade with the screen and cycle with the intro's road.  The
+ * indices come from the screen's palette (DS:0x5182, what fades go to):
+ * of the entries with the colour, the one most used on screen.  Which
+ * picture: the one whose colours are all on screen (the main menu comes
+ * back from Controls and Help without loading its file again), the last
+ * menu file opened first, else the one with the fewest missing. */
+static int menu_colours(int menu, const int *count, int *pick)
+{
+    const uint8_t *pal = (const uint8_t *)g_ds + 0x5182;
+    int i, c, n = wide_menu_ncols[menu], missing = 0;
+    for (c = 0; c < n; c++) pick[c] = -1;
+    for (i = 0; i < 256; i++) {
+        uint8_t r = pal[i * 3] & 63, g = pal[i * 3 + 1] & 63, b = pal[i * 3 + 2] & 63;
+        unsigned char rgb[3] = { (unsigned char)(r << 2 | r >> 4), (unsigned char)(g << 2 | g >> 4),
+                                 (unsigned char)(b << 2 | b >> 4) };
+        for (c = 0; c < n; c++)
+            if (!memcmp(rgb, wide_menu_rgb[menu][c], 3)) {
+                if (pick[c] < 0 || count[i] > count[pick[c]]) pick[c] = i;
+                break;
+            }
+    }
+    for (c = 0; c < n; c++) missing += pick[c] < 0 || !count[pick[c]];   /* not on screen */
+    return missing;
+}
+
+static int draw_menu_margins(uint32_t *pixels, int pitch, int left, int right)
+{
+    const uint8_t *fb = g_mem + VGA_BASE;
+    int menu = atomic_load(&s_menu), x, y, i, c;
+    int count[256], pick[64];
+    uint32_t col[64];
+    if (menu < 0 || !g_ds) return 0;
+    for (i = 0; i < 256; i++) count[i] = 0;
+    for (i = 0; i < 64000; i++) count[fb[i]]++;
+    {
+        int other = 1 - menu, miss = wide_menu_have[menu] ? menu_colours(menu, count, pick) : 999;
+        if (miss && wide_menu_have[other] && menu_colours(other, count, pick) < miss) menu = other;
+        else if (miss == 999) return 0;
+        else menu_colours(menu, count, pick);
+    }
+    for (c = 0; c < wide_menu_ncols[menu]; c++)   /* not in the palette: as painted, faded */
+        col[c] = pick[c] >= 0 ? rgb((uint8_t)pick[c]) : rgb3(wide_menu_rgb[menu][c]);
+    for (y = 0; y < 200; y++) {
+        uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);
+        const unsigned char *m = wide_menu[menu][y];
+        for (x = 0; x < left; x++)  out[left - 1 - x]   = col[m[WIDE_BG_LEFT - 1 - x]];
+        for (x = 0; x < right; x++) out[left + 320 + x] = col[m[WIDE_BG_LEFT + x]];
+    }
+    return 1;
+}
+
 /* the side margins, `left` and `right` columns: the road's painted backdrop
  * (the part nearest the frame), else the run's backdrop (DS:0x517e, the clean
  * 320x200 picture the renderer restores the road area from) mirrored at the
@@ -207,6 +271,7 @@ static void draw_margins(uint32_t *pixels, int pitch, int left, int right)
         }
         return;
     }
+    if (!atomic_load(&s_in_run) && draw_menu_margins(pixels, pitch, left, right)) return;
     if (atomic_load(&s_in_run) && DS16(0x517e)) bg = g_mem + ((uint32_t)DS16(0x517e) << 4);
     for (y = 0; y < 200; y++) {
         uint32_t *out = (uint32_t *)((uint8_t *)pixels + y * pitch);

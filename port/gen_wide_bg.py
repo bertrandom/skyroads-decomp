@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Embed the widescreen margins of the painted road backdrops as wide_bg.h.
 
-usage: gen_wide_bg.py DIR wide_bg.h [PANEL.png]
+usage: gen_wide_bg.py DIR wide_bg.h [PANEL.png [MENUDIR]]
 DIR holds worldN_filled.png (N = 0..9), all the same size: pictures of the
 whole widescreen frame, 240 rows tall (the 320x200 screen stretched to 4:3,
 rows 1.2x tall) with the original screen in the middle, (width - 320) / 2
@@ -18,7 +18,16 @@ backdrop instead).
 PANEL.png, as wide as the backdrops and 85 rows tall, is the control panel
 (screen rows 129-199, stretched the same way) painted out to the same width,
 transparent where the backdrop shows: its side margins are kept too, at 71
-rows, and drawn over the backdrop's.  Needs ImageMagick (`magick`).
+rows, and drawn over the backdrop's.
+
+MENUDIR holds the menu screens painted out the same way (same size):
+mainmenu_nologo_filled.png (the intro and main menu's checkerboard) and
+controls_filled.png (the blue backdrop of the Controls, road selection and
+help screens).  Their margins use only colours of the screens' own
+palettes, so they are kept as colour numbers into a small table per
+picture: platform.c finds the palette index each colour has on the screen
+and draws through the live palette (fades, the intro's colour cycling).
+Needs ImageMagick (`magick`).
 """
 import os
 import subprocess
@@ -27,6 +36,9 @@ import sys
 H, ROWS = 240, 200
 src, out = sys.argv[1], sys.argv[2]
 panel = sys.argv[3] if len(sys.argv) > 3 else None
+menu_dir = sys.argv[4] if len(sys.argv) > 4 else None
+MENUS = ['mainmenu_nologo_filled.png', 'controls_filled.png']
+MAX_COLS = 64
 PANEL_ROWS, PANEL_H = 71, 85
 paths = [os.path.join(src, 'world%d_filled.png' % n) for n in range(10)]
 present = [p for p in paths if os.path.exists(p)]
@@ -90,4 +102,41 @@ with open(out, 'w') as f:
         pdata = bytes(PANEL_ROWS * max(LEFT + RIGHT, 2) * 4)
     for i in range(0, len(pdata), 24):
         f.write(",".join(str(b) for b in pdata[i:i + 24]) + ",\n")
+    f.write("};\n")
+    # the menu screens' margins: colour numbers into a table per picture
+    menu_have, menu_cols, menu_px = [], [], bytearray()
+    for name in MENUS:
+        path = os.path.join(menu_dir, name) if menu_dir else ''
+        cols = []
+        if path and os.path.exists(path) and W > 320:
+            rgb = subprocess.run(['magick', path, '-depth', '8', 'rgb:-'],
+                                 check=True, capture_output=True).stdout
+            assert len(rgb) == W * H * 3, '%s is not %dx%d' % (path, W, H)
+            index = {}
+            for y in range(ROWS):
+                line = rgb[int((y + 0.5) * H / ROWS) * W * 3:][:W * 3]
+                line = line[:LEFT * 3] + line[(LEFT + 320) * 3:]
+                for k in range(0, len(line), 3):
+                    c = line[k:k + 3]
+                    if c not in index:
+                        index[c] = len(cols)
+                        cols.append(c)
+                    menu_px.append(index[c])
+            assert len(cols) <= MAX_COLS, '%s: more than %d colours' % (path, MAX_COLS)
+            menu_have.append(1)
+        else:
+            menu_have.append(0)
+            menu_px += bytes(ROWS * (LEFT + RIGHT))
+        menu_cols.append(cols)
+    f.write("/* the menu screens' margins (0 intro/main menu, 1 controls/road selection/help):\n"
+            " * colour numbers into wide_menu_rgb, [menu][row][left %d | right %d] */\n" % (LEFT, RIGHT))
+    f.write("static const unsigned char wide_menu_have[2] = { %s };\n" % ", ".join(map(str, menu_have)))
+    f.write("static const unsigned char wide_menu_ncols[2] = { %s };\n" % ", ".join(str(len(c)) for c in menu_cols))
+    f.write("static const unsigned char wide_menu_rgb[2][%d][3] = {\n" % MAX_COLS)
+    for cols in menu_cols:
+        f.write("  { %s },\n" % ", ".join("{%d,%d,%d}" % tuple(c) for c in cols) if cols else "  { {0} },\n")
+    f.write("};\n")
+    f.write("static const unsigned char wide_menu[2][%d][%d] = {\n" % (ROWS, max(LEFT + RIGHT, 2)))
+    for i in range(0, len(menu_px), 32):
+        f.write(",".join(str(b) for b in menu_px[i:i + 32]) + ",\n")
     f.write("};\n")
