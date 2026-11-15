@@ -545,16 +545,24 @@ static void volume_load(void)
     FILE *f = fopen(plat_save_path("volume", path, sizeof path), "r");
     int v;
     if (f) {
-        if (fscanf(f, "%d", &v) == 1) sky_set_volume(v);
+        if (fscanf(f, "%d", &v) == 1 && v > 0) sky_set_volume(v);
         fclose(f);
     }
 }
 
+/* - and =: with the sound off the volume counts as 0, so = turns the sound
+ * back on (at 10) and - down to 0 turns it off; the volume itself is kept */
 static void volume_step(int d)
 {
     char path[1024];
     FILE *f;
-    sky_set_volume(sky_volume() + d);
+    int on = sky_sound_on(), v = (on ? sky_volume() : 0) + d;
+    if (v <= 0) {
+        if (on) sky_set_sound(0);
+        return;
+    }
+    sky_set_volume(v);
+    if (!on) sky_set_sound(1);
     f = fopen(plat_save_path("volume", path, sizeof path), "w");
     if (f) { fprintf(f, "%d\n", sky_volume()); fclose(f); }
 }

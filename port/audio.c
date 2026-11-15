@@ -12,7 +12,7 @@
 #include <stdatomic.h>
 #include <SDL.h>
 
-/* The volume, 0-100 (the page's slider, natively the - and = keys): the mix
+/* The volume, 1-100 (the page's slider, natively the - and = keys): the mix
  * is scaled by (volume / 100)^2, so 100 is full scale (the music's peaks
  * near it) and the default, 60, about 9 dB below. */
 static atomic_int s_volume = 60;
