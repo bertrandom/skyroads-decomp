@@ -2,6 +2,7 @@
 #include "compat.h"
 #include <SDL.h>
 #include <ctype.h>
+#include <math.h>
 #include <stdatomic.h>
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -105,9 +106,13 @@ EMSCRIPTEN_KEEPALIVE void plat_set_view_width(int w) { s_page_w = w; }
 EMSCRIPTEN_KEEPALIVE int plat_max_view_width(void) { return MAX_W; }
 #endif
 
-static int clamp_w(int w) { return w < 320 ? 320 : w > MAX_W ? MAX_W : w; }
+static int clamp_w(int w) { return w < 320 ? 320 : w > (MAX_W & ~1) ? (MAX_W & ~1) : w; }
 
-/* the view's width: 320 (4:3), or in widescreen the window's shape */
+/* the view's width: 320 (4:3), or in widescreen the window's shape.  It is
+ * even, so the margins are the same width and the frame stays in the
+ * middle, and at least as wide as the window: the picture is scaled to the
+ * window's height as in 4:3 (the frame keeps its size and place when
+ * widescreen is switched) and what is over is cut off at the sides. */
 static int view_width(void)
 {
     if (!s_wide) return 320;
@@ -119,7 +124,7 @@ static int view_width(void)
         const char *force = getenv("SKY_VIEW_W");   /* debug: this many columns */
         if (force && atoi(force) > 0) return clamp_w(atoi(force));
         SDL_GetWindowSize(s_window, &ww, &wh);
-        return wh > 0 ? clamp_w((int)(240.0 * ww / wh + 0.5)) : 320;
+        return wh > 0 ? clamp_w(2 * (int)ceil(120.0 * ww / wh - 1e-6)) : 320;
     }
 #endif
 }
@@ -145,8 +150,11 @@ int plat_init(void)
     s_renderer = SDL_CreateRenderer(s_window, -1, SDL_RENDERER_ACCELERATED |
                                     SDL_RENDERER_PRESENTVSYNC);
     if (!s_renderer) s_renderer = SDL_CreateRenderer(s_window, -1, 0);
-    /* 320x200 with 4:3 aspect ratio correction (pixels are 1.2x tall) */
+    /* 320x200 with 4:3 aspect ratio correction (pixels are 1.2x tall); natively
+     * plat_present places the picture itself */
+#ifdef __EMSCRIPTEN__
     SDL_RenderSetLogicalSize(s_renderer, 320, 240);
+#endif
     s_texture = SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888,
                                   SDL_TEXTUREACCESS_STREAMING, MAX_W, 200);
     { const char *w = getenv("SKY_WIDE"); s_wide = w && *w && *w != '0'; }
@@ -352,9 +360,9 @@ void plat_present(void)
     if (w != s_shown_w) {
 #ifdef __EMSCRIPTEN__
         SDL_SetWindowSize(s_window, w * s_scale, 240 * s_scale);  /* the canvas */
+        SDL_RenderSetLogicalSize(s_renderer, w, 240);
 #endif
         s_shown_w = w;
-        SDL_RenderSetLogicalSize(s_renderer, w, 240);
     }
     if (SDL_LockTexture(s_texture, &area, &pixels, &pitch) == 0) {
         const uint8_t *fb = g_mem + VGA_BASE;
@@ -382,7 +390,23 @@ void plat_present(void)
     }
     SDL_SetRenderDrawColor(s_renderer, 0, 0, 0, 255);
     SDL_RenderClear(s_renderer);
-    SDL_RenderCopy(s_renderer, s_texture, &area, NULL);
+#ifdef __EMSCRIPTEN__
+    SDL_RenderCopy(s_renderer, s_texture, &area, NULL);   /* the page sizes the canvas */
+#else
+    {   /* the 4:3 frame as large as fits, centred on whole pixels, the same in
+         * 4:3 and widescreen; the margins either side, cut off by the window */
+        int ow, oh;
+        float s;
+        SDL_FRect dst;
+        SDL_GetRendererOutputSize(s_renderer, &ow, &oh);
+        s = fminf(ow / 320.0f, oh / 240.0f);
+        dst.x = roundf((ow - 320 * s) / 2) - left * s;
+        dst.y = roundf((oh - 240 * s) / 2);
+        dst.w = w * s;
+        dst.h = 240 * s;
+        SDL_RenderCopyF(s_renderer, s_texture, &area, &dst);
+    }
+#endif
     SDL_RenderPresent(s_renderer);
 }
 
