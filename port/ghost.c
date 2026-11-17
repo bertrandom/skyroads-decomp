@@ -23,14 +23,19 @@
  * depth of their row, floor tiles by the depth of their screen line, which
  * also hides a ghost that drops into a gap.
  *
- * Ghost placement: the road is drawn with a pinhole perspective.  Fitting the
- * TREKDAT floor edges (drawn 32 lines down) gives
- *     screen_y = 9.4 + 238.5 / (2.58 + rows ahead of the ship),
- * and the ship sprite sits exactly at 0 rows ahead (its bottom line, 101,
- * is that floor line; one lane, 46 px, is the road cell width there).  A
- * ghost `dz` rows ahead of the player is drawn as the player sprite it would
- * have been, scaled by 2.58 / (2.58 + dz) towards the vanishing point
- * (160, 9.4). */
+ * Ghost placement: the road is not a pinhole perspective (its lanes narrow
+ * to nothing about 8 rows ahead, at screen line 32, while its row edges head
+ * for line 8.6), so a ghost follows the road's own geometry, as fitted to the
+ * TREKDAT tables for the widescreen margins (render.c, drawn from screen
+ * line 32): the floor `d` rows ahead of the ship is screen line
+ *     FLOOR_Y(d) = 32 - 23.401 + 247.392 / (2.65 + d)
+ * and a lane there is LANE_W(y) = 0.6655 * (y - 32) + 0.5 pixels wide.  The
+ * ship sprite sits at 0 rows ahead: its bottom line, 101, is that floor
+ * line, and it is one lane (46 px) wide.  A ghost `dz` rows ahead of the
+ * player is drawn as the player sprite it would have been, its bottom on
+ * FLOOR_Y(dz) and scaled by the lane width there (sideways towards the
+ * road's middle, x = 160): a scale from a single vanishing point made far
+ * ghosts much too big, so they seemed to float above the road. */
 #include "compat.h"
 #include "protos.h"
 #include <SDL.h>
@@ -48,9 +53,12 @@
 #define MIN_FRAMES    36                /* ignore runs shorter than ~1 s */
 #define MAX_FRAMES    60000
 
-#define CAM_DIST   2.58f                /* camera -> ship, in rows        */
-#define VP_X       160.0f               /* vanishing point                */
-#define VP_Y       9.4f
+#define ROAD_MID   160.0f               /* the road's middle (x)          */
+#define SHIP_BASE  101.0f               /* the ship sprite's bottom line  */
+#define EDGE_CAM   2.65f                /* as render.c's EDGE_LINE        */
+#define FLOOR_Y(d) (32.0f - 23.401f + 247.392f / (EDGE_CAM + (d)))
+#define LANE_W(y)  (0.6655f * ((y) - 32.0f) + 0.5f)
+#define FAR_ROWS   7.9f                 /* lanes this far ahead are gone  */
 #define ROAD_LINES 138                  /* road viewport (dashboard below) */
 #define SPR_W 29
 #define SPR_H 24
@@ -141,7 +149,7 @@ static int enabled(void)
         s_lock = SDL_CreateMutex();
         memset(s_depth, DEPTH_NONE, sizeof s_depth);
         for (y = 0; y < 200; y++)       /* inverse of the floor perspective */
-            s_floor_depth[y] = (y > VP_Y + 1) ? 238.5f / (y - VP_Y) - CAM_DIST : 1000.0f;
+            s_floor_depth[y] = (y > 33) ? 247.392f / (y - 32 + 23.401f) - EDGE_CAM : 1000.0f;
 #ifdef __EMSCRIPTEN__
         s_enabled = 1;
 #else
@@ -325,7 +333,7 @@ static int ghost_at(const Frame *f, uint32_t n, uint32_t *cur, uint32_t pz,
                     const uint8_t *tint, Draw *out)
 {
     const Frame *a, *b;
-    float k, gx, gy, dz, s, left, top, alpha;
+    float k, gx, gy, dz, s, left, top, alpha, floor;
     if (n == 0 || s_t > f[n - 1].t) return 0;       /* finished, or not here yet */
     while (*cur + 1 < n && f[*cur + 1].t <= s_t) (*cur)++;
     a = &f[*cur];
@@ -336,16 +344,17 @@ static int ghost_at(const Frame *f, uint32_t n, uint32_t *cur, uint32_t pz,
     gx = a->x + ((float)b->x - a->x) * k;
     gy = a->y + ((float)b->y - a->y) * k;
     dz = ((float)(int32_t)(a->z - pz) + (float)(int32_t)(b->z - a->z) * k) / 65536.0f;
-    if (dz <= -1.0f || dz >= 9.0f) return 0;
-    s = CAM_DIST / (CAM_DIST + dz);
+    if (dz <= -1.0f || dz >= FAR_ROWS) return 0;
+    floor = FLOOR_Y(dz);
+    s = LANE_W(floor) / LANE_W(SHIP_BASE);
     ship_rect((uint16_t)gx, (uint16_t)gy, &left, &top);
     alpha = 0.55f;
     if (dz < -0.2f) alpha *= (dz + 1.0f) / 0.8f;           /* passing the camera */
-    if (dz > 7.0f)  alpha *= (9.0f - dz) / 2.0f;            /* past the road's end */
+    if (dz > 6.0f)  alpha *= (FAR_ROWS - dz) / (FAR_ROWS - 6.0f);   /* road's end */
     out->z = dz;
     out->scale = s;
-    out->x0 = (int16_t)(VP_X + (left - VP_X) * s + 0.5f);
-    out->y0 = (int16_t)(VP_Y + (top - VP_Y) * s + 0.5f);
+    out->x0 = (int16_t)(ROAD_MID + (left - ROAD_MID) * s + 0.5f);
+    out->y0 = (int16_t)(floor - (SHIP_BASE - top) * s + 0.5f);
     out->alpha = (uint8_t)(alpha * 255.0f);
     out->tint = tint;
     out->spr = SEG(DS16(0xaf46)) + (uint16_t)(DS16(0xaf44) + a->spr * 0x2d0);
