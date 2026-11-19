@@ -53,7 +53,7 @@ static void heap_init(void)
 }
 
 /* 1000:6660  LZS decompression.  The Pocket build has a faster one of its
- * own (pocket/firmware/lzs_fast.c) and keeps this one, renamed, to check
+ * own (skyroads-pocket: firmware/lzs_fast.c) and keeps this one, renamed, to check
  * it against. */
 #ifdef SKY_FAST_LZS
 #define FUN_1000_6660 sky_lzs_reference

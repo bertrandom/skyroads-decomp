@@ -16,8 +16,8 @@
  * With --writes DIR, each song's OPL register writes are also saved, as
  * DIR/<name>.opl: u32 ticks (the length rendered), u32 the song's end tick,
  * then one u32 per write, tick << 16 | register << 8 | value, in order
- * (tick 0 holds the chip's set-up); ../pocket/sim/tb_songs.cpp plays them
- * through the Pocket's audio hardware.
+ * (tick 0 holds the chip's set-up); the Pocket core's sim/tb_songs.cpp
+ * (skyroads-pocket) plays them through the Pocket's audio hardware.
  *
  *   render_songs MUZAX.LZS OUTDIR [VOLUME] [--writes DIR]   (make songs) */
 #include "compat.h"

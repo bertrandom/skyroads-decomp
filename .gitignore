@@ -29,17 +29,8 @@ port/arity.log
 web/.venv/
 !uv.lock
 
-# Pocket (openFPGA) build: fetched dependencies, outputs, simulation
-pocket/vendor/
-pocket/build/
-pocket/sim/obj*/
-pocket/sim/frames*/
-pocket/sim/demo_frames/
-pocket/sim/*.log
-pocket/sim/songs/
+# song renders (port/tools/render_songs.c)
 port/songs/
 port/render_songs
 port/skyroads-songs-alac.zip
-pocket/sim/*_frames/
-pocket/sim/*.wav
 port/*.dSYM/
