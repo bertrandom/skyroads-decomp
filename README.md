@@ -1,5 +1,20 @@
 # SkyRoads decompilation
 
+```mermaid
+flowchart LR
+  decomp["<b>skyroads-decomp</b><br/>decompilation and native port"]
+  web["<b>skyroads-web</b><br/>web port, ghost relay, deploy"]
+  pocket["<b>skyroads-pocket</b><br/>Analogue Pocket core"]
+  web -- "decomp/ submodule" --> decomp
+  pocket -- "decomp/ submodule" --> decomp
+  click web "https://github.com/bertrandom/skyroads-web"
+  click pocket "https://github.com/bertrandom/skyroads-pocket"
+  classDef here stroke-width:3px
+  class decomp here
+```
+
+This repository is **skyroads-decomp**. The others: [skyroads-web](https://github.com/bertrandom/skyroads-web) · [skyroads-pocket](https://github.com/bertrandom/skyroads-pocket).
+
 SkyRoads (Bluemoon Interactive, 1993) decompiled from its DOS executable
 into C that builds and runs natively. It is not an emulator: the game's own
 logic, exported from Ghidra and transformed into compilable C, runs as a
