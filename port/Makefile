@@ -23,13 +23,15 @@ CFLAGS  += -std=gnu11 -I. -fno-strict-aliasing -fwrapv -Wall \
            -Wno-unused-value -Wno-sometimes-uninitialized -Wno-uninitialized \
            -Wno-incompatible-pointer-types-discards-qualifiers -Wno-strict-prototypes
 
+# the SDL platform layer (sdl/): main.c, platform.c, hw.c, audio.c
+vpath %.c sdl
 OBJS = main.o runtime.o video.o platform.o hw.o audio.o music.o manual.o render.o game.o ghost.o sign.o opl3.o
 DATA = ../resources/Skyroads
 APP  = SkyRoads.app
 
 all: skyroads
 
-MANUAL_SRC = runtime.c manual.c render.c audio.c music.c hw.c video.c
+MANUAL_SRC = runtime.c manual.c render.c sdl/audio.c music.c sdl/hw.c video.c
 
 game.c game.h protos.h: ../build/skyroads_bluemoon.c transform.py gen_protos.py wrap16.py $(MANUAL_SRC)
 	python3 transform.py
@@ -52,7 +54,7 @@ wide_bg.sum: FORCE
 wide_bg.h: wide_bg.sum
 	python3 gen_wide_bg.py $(WIDE_BG_DIR) wide_bg.h $(WIDE_PANEL) $(WIDE_MENU_DIR)
 FORCE:
-platform.o: platform.c wide_bg.h compat.h
+platform.o: sdl/platform.c wide_bg.h compat.h
 
 %.o: %.c compat.h protos.h
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
@@ -62,7 +64,7 @@ game.o: game.c game.h compat.h protos.h
 opl3.o: thirdparty/nuked-opl3/opl3.c thirdparty/nuked-opl3/opl3.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-main.o: main.c image_data.h compat.h
+main.o: sdl/main.c image_data.h compat.h
 runtime.o: runtime.c font8x8.h compat.h
 
 skyroads: $(OBJS)

@@ -470,7 +470,7 @@ static int s_want_song = -1;            /* last song the game asked for */
 static atomic_int s_sound_req = -1;     /* from the page: 1 on, 0 off   */
 static int s_in_controls;               /* the Controls screen is showing */
 
-/* the menu screen last opened (its .lzs), for SKY_ROAD in platform.c */
+/* the menu screen last opened (its .lzs), for SKY_ROAD in sdl/platform.c */
 static char s_screen[16];
 static int s_screen_n;
 const char *sky_screen(int *n) { if (n) *n = s_screen_n; return s_screen; }
@@ -699,7 +699,7 @@ int16_t FUN_1000_5c67(int _handle, int _lo, int _hi, int _whence)
 
 /* how bright the screen's palette is, 0-100: 1000:4b72 fades between the
  * palette and black through 1000:4315; the widescreen margins' true-colour
- * pictures follow it (platform.c) */
+ * pictures follow it (sdl/platform.c) */
 static atomic_int s_fade = 100;
 int sky_fade_level(void) { return atomic_load(&s_fade); }
 

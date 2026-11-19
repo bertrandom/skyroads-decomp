@@ -12,7 +12,7 @@ shows as much of them as the window's shape leaves room for.
 The frame's own outer WIDE_BG_EDGE columns are kept as painted too: some
 backdrops (Blue Planet) have a dark line at the original picture's edges,
 which the game covers where the backdrop shows.
-Worlds without a picture are marked missing (platform.c mirrors the
+Worlds without a picture are marked missing (sdl/platform.c mirrors the
 backdrop instead).
 
 PANEL.png, as wide as the backdrops and 85 rows tall, is the control panel
@@ -26,7 +26,7 @@ controls_filled.png (the blue backdrop of the Controls, road selection and
 help screens; it blends into the original picture near its edges, so the
 frame's own outer WIDE_BG_EDGE columns are kept too).  Their margins use only colours of the screens' own
 palettes, so they are kept as colour numbers into a small table per
-picture: platform.c finds the palette index each colour has on the screen
+picture: sdl/platform.c finds the palette index each colour has on the screen
 and draws through the live palette (fades, the intro's colour cycling).
 Needs ImageMagick (`magick`).
 """

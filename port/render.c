@@ -611,7 +611,7 @@ void FUN_1000_0be3(int param_1)
          * recorded by road position) and exits 0 once the ship reaches the
          * finish row of the demo road, 1 if it is lost on the way
          * (DS:0x457c end state: 1 crash, 2 burned, 3 fell, 4 fuel, 5 oxygen).
-         * A watchdog in main.c exits 2 if the demo never gets there. */
+         * A watchdog in sdl/main.c exits 2 if the demo never gets there. */
         static int armed = -1;
         if (armed < 0) armed = getenv("SKY_DEMO_TEST") != NULL;
         if (armed && DS16(0x9602) == 3) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import re
 defs = {}
-for f in ["runtime.c", "manual.c", "video.c", "render.c", "audio.c"]:
+for f in ["runtime.c", "manual.c", "video.c", "render.c", "sdl/audio.c"]:
     t = open(f).read()
     for m in re.finditer(r"^[A-Za-z_][\w \*]*?\b(FUN_1000_[0-9a-f]{4})\(([^)]*)\)\s*\n?\{", t, re.M):
         p = m.group(2).strip()

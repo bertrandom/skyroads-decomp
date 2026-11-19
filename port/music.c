@@ -1,6 +1,6 @@
 /* The game's AdLib music player and Sound Blaster detection, ported from
  * the disassembly (1000:5876..1000:5bc0).  Shared by every build: the
- * platform's sound layer (audio.c natively and on the web, the Pocket's
+ * platform's sound layer (sdl/audio.c natively and on the web, the Pocket's
  * firmware) provides the chip and the DMA playback:
  *   opl_out(reg, val)   write an OPL2 register
  *   opl_tick()          called once per music tick (the 180 Hz timer)

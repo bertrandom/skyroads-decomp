@@ -108,7 +108,7 @@ static inline void ds_frame_release(uint16_t *saved) { g_dsp = *saved; }
 uint32_t timer_ticks(void);
 
 /* ------------------------------------------------------------------ */
-/* Native platform API (implemented in platform.c)                     */
+/* Native platform API (implemented in sdl/platform.c)                     */
 /* ------------------------------------------------------------------ */
 int  plat_init(void);
 void plat_shutdown(void);
@@ -148,7 +148,7 @@ void kb_clear(void);
 /* High resolution wall clock in milliseconds. */
 uint64_t plat_millis(void);
 
-/* File helpers (implemented in platform.c over stdio). */
+/* File helpers (implemented in sdl/platform.c over stdio). */
 typedef struct SkyFile SkyFile;
 SkyFile *sky_open(const char *name);
 SkyFile *sky_create(const char *name);

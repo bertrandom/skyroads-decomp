@@ -1,7 +1,7 @@
 /* Render the game's songs to WAV files, as the native build plays them.
  *
  * The same music player (music.c) and the same OPL emulation and mixing
- * as audio.c: Nuked-OPL3 (thirdparty/nuked-opl3) at 44100 Hz, buffered
+ * as sdl/audio.c: Nuked-OPL3 (thirdparty/nuked-opl3) at 44100 Hz, buffered
  * register writes, (left + right) / 65536 * OPL_GAIN 12, the mixer's 0.18
  * and the volume's square (60 by default: 0.36), * 32000 into 16 bits,
  * mono.  The player ticks at the rate the game sets the PIT to (1193182 /

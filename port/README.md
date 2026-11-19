@@ -64,12 +64,24 @@ real time; it opens a window).
 | `manual.c` | blitters, timer/keyboard hooks and other routines whose decompilation lost segment registers |
 | `render.c` | the road/ship renderer (hand written assembly at 1000:2cce–3acb) and its per-frame driver |
 | `runtime.c` | DOS file/memory services, LZS decompressor, data loaders, C runtime helpers |
-| `audio.c` | the mixer: Sound Blaster PCM, PC speaker, and the AdLib chip, [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 (`thirdparty/nuked-opl3`, LGPL-2.1) |
 | `music.c` | the game's AdLib music player and Sound Blaster detection (shared with the Analogue Pocket core, its own repository, skyroads-pocket) |
-| `hw.c` | timer interrupt (180 Hz), keyboard interrupt, vsync, mouse/joystick |
 | `ghost.c` | ghost racers: records each run and replays earlier runs of the same road as translucent ships, or in the web build the live runs of other players through the relay (`server/relay.py` in skyroads-web) (on by default in the web build, `SKY_GHOSTS=1` natively) |
 | `video.c` | VGA register model, 8×8 font glyph drawing |
-| `platform.c`, `main.c` | SDL window/audio/input, file access, threads |
+
+The platform layer, `sdl/`, stands in for the 1993 PC the game code expects
+(VGA memory, the AdLib and Sound Blaster, the timer and keyboard interrupts,
+DOS files) on SDL2; the same files make the web build.  `hw.c` and
+`audio.c` also hold the game's own interrupt handlers and sound routines,
+re-implemented, so `transform.py` and `gen_protos.py` read them with the
+rest of the hand-written code.  The Analogue Pocket core replaces the
+whole folder with its firmware and hardware.
+
+| file | contents |
+|------|----------|
+| `sdl/hw.c` | the PC's hardware: timer interrupt (180 Hz), keyboard interrupt, vsync, mouse/joystick |
+| `sdl/audio.c` | the sound card and mixer: Sound Blaster PCM, PC speaker, and the AdLib chip, [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 (`thirdparty/nuked-opl3`, LGPL-2.1) |
+| `sdl/platform.c` | the SDL window and presentation (with the widescreen margins), input events, file access |
+| `sdl/main.c` | the entry point: memory set up, the threads started |
 
 Memory model: the program's 16-bit address space is kept as a flat 1 MiB
 array (`g_mem`) with the EXE's load image at `1000:0000`; the data segment is
