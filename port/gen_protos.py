@@ -76,7 +76,7 @@ def write_header(defs, path):
     open(path, "w").write("\n".join(lines))
 
 
-MANUAL_SOURCES = ["runtime.c", "manual.c", "render.c", "audio.c", "hw.c", "video.c"]
+MANUAL_SOURCES = ["runtime.c", "manual.c", "render.c", "audio.c", "music.c", "hw.c", "video.c"]
 
 if __name__ == "__main__":
     files = sys.argv[1:] or MANUAL_SOURCES + ["game.c"]

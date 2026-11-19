@@ -513,6 +513,7 @@ void FUN_1000_2d03(int x, int pos, int y, int spr_off, int spr_seg,
         R_SIDE = 0;
         right_side = 0;
         if (R_ROW == 4) { saved_di = di_; di_ = R_PASS ? 0x240 : 0x210; }
+#ifndef SKY_NO_GHOSTS   /* the Pocket build has no ghosts (and no FPU) */
         {   /* front and middle of this row (or of the half row around the
              * ship), in rows ahead of the ship */
             float frac = (float)(R_POS & 7) / 8.0f, front, back;
@@ -523,6 +524,7 @@ void FUN_1000_2d03(int x, int pos, int y, int spr_off, int spr_seg,
             /* ghost.c hides a ghost behind surfaces > 0.3 rows nearer */
             s_tunnel_depth = depth_code(front - 0.3f);
         }
+#endif
         do {
             for (R_CELL = 4; R_CELL; R_CELL--) {
                 cell_dispatch();

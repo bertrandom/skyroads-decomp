@@ -4,6 +4,8 @@
 #                   ../resources/Skyroads automatically)
 #   make app        build SkyRoads.app (self-contained: data + SDL2 inside)
 #   make regen      re-run the transformation of ../build/skyroads.c
+#   make songs      the game's songs as WAV files in songs/, as this build
+#                   plays them (tools/render_songs.c)
 #   make clean
 CC      ?= cc
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null || echo -I/opt/homebrew/include/SDL2 -D_THREAD_SAFE)
@@ -21,13 +23,13 @@ CFLAGS  += -std=gnu11 -I. -fno-strict-aliasing -fwrapv -Wall \
            -Wno-unused-value -Wno-sometimes-uninitialized -Wno-uninitialized \
            -Wno-incompatible-pointer-types-discards-qualifiers -Wno-strict-prototypes
 
-OBJS = main.o runtime.o video.o platform.o hw.o audio.o manual.o render.o game.o ghost.o sign.o opl3.o
+OBJS = main.o runtime.o video.o platform.o hw.o audio.o music.o manual.o render.o game.o ghost.o sign.o opl3.o
 DATA = ../resources/Skyroads
 APP  = SkyRoads.app
 
 all: skyroads
 
-MANUAL_SRC = runtime.c manual.c render.c audio.c hw.c video.c
+MANUAL_SRC = runtime.c manual.c render.c audio.c music.c hw.c video.c
 
 game.c game.h protos.h: ../build/skyroads_bluemoon.c transform.py gen_protos.py wrap16.py $(MANUAL_SRC)
 	python3 transform.py
@@ -87,3 +89,11 @@ clean:
 # hand-written runtime behave exactly like the original.
 test: skyroads
 	SKY_DEMO_TEST=1 ./skyroads
+
+# the songs as WAV files, through the same player and OPL emulation
+render_songs: tools/render_songs.c music.c thirdparty/nuked-opl3/opl3.c image_data.h compat.h protos.h
+	$(CC) $(CFLAGS) -o $@ tools/render_songs.c music.c thirdparty/nuked-opl3/opl3.c -lm
+songs: render_songs
+	mkdir -p songs
+	./render_songs $(DATA)/MUZAX.LZS songs
+.PHONY: songs

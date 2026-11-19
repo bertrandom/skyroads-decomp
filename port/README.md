@@ -64,7 +64,8 @@ real time; it opens a window).
 | `manual.c` | blitters, timer/keyboard hooks and other routines whose decompilation lost segment registers |
 | `render.c` | the road/ship renderer (hand written assembly at 1000:2cce–3acb) and its per-frame driver |
 | `runtime.c` | DOS file/memory services, LZS decompressor, data loaders, C runtime helpers |
-| `audio.c` | AdLib music player port, Sound Blaster PCM, PC speaker; the AdLib chip itself is [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 (`thirdparty/nuked-opl3`, LGPL-2.1) |
+| `audio.c` | the mixer: Sound Blaster PCM, PC speaker, and the AdLib chip, [Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3) 1.8 (`thirdparty/nuked-opl3`, LGPL-2.1) |
+| `music.c` | the game's AdLib music player and Sound Blaster detection (shared with the Pocket build, `../pocket`) |
 | `hw.c` | timer interrupt (180 Hz), keyboard interrupt, vsync, mouse/joystick |
 | `ghost.c` | ghost racers: records each run and replays earlier runs of the same road as translucent ships, or in the web build the live runs of other players through `../server/relay.py` (on by default in the web build, `SKY_GHOSTS=1` natively) |
 | `video.c` | VGA register model, 8×8 font glyph drawing |

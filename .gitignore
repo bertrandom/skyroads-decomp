@@ -28,3 +28,18 @@ port/arity.log
 # uv environment for web/ build helpers (web/pyproject.toml)
 web/.venv/
 !uv.lock
+
+# Pocket (openFPGA) build: fetched dependencies, outputs, simulation
+pocket/vendor/
+pocket/build/
+pocket/sim/obj*/
+pocket/sim/frames*/
+pocket/sim/demo_frames/
+pocket/sim/*.log
+pocket/sim/songs/
+port/songs/
+port/render_songs
+port/skyroads-songs-alac.zip
+pocket/sim/*_frames/
+pocket/sim/*.wav
+port/*.dSYM/

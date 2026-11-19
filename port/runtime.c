@@ -52,6 +52,12 @@ static void heap_init(void)
     for (i = 2; i < MAX_BLOCKS; i++) g_blocks[i].used = -1;
 }
 
+/* 1000:6660  LZS decompression.  The Pocket build has a faster one of its
+ * own (pocket/firmware/lzs_fast.c) and keeps this one, renamed, to check
+ * it against. */
+#ifdef SKY_FAST_LZS
+#define FUN_1000_6660 sky_lzs_reference
+#endif
 void FUN_1000_6660(int _dest_off, int _dest_seg, int _size)
 {
     uint16_t dest_off = (uint16_t)_dest_off;
@@ -101,6 +107,9 @@ void FUN_1000_6660(int _dest_off, int _dest_seg, int _size)
      * "call 6679 / pop di / pop si / leave / ret": byte-align the stream. */
     FUN_1000_65f3();
 }
+#ifdef SKY_FAST_LZS
+#undef FUN_1000_6660
+#endif
 
 static uint16_t heap_alloc(uint32_t size)
 {
