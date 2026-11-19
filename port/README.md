@@ -1,7 +1,7 @@
 # SkyRoads – native macOS port of the decompilation
 
 This directory builds a native (arm64/x86_64) macOS version of SkyRoads
-(Bluemoon, 1993) from the Ghidra pseudo-C in `../build/skyroads_bluemoon.c`.
+(Bluemoon, 1993) from the Ghidra pseudo-C in `../ghidra/skyroads_bluemoon.c`.
 It is a *rewrite*, not an emulator: the game logic is the decompiled C,
 compiled natively; the parts Ghidra could not express (hand written assembly,
 BIOS/DOS calls, hardware access) were re-implemented in C from the disassembly.
@@ -11,10 +11,10 @@ The game files are Bluemoon's current release (`../resources/Skyroads`, from
 SkyRoads Xmas Special's `SKYXMAS.EXE`): 14-song music with a menu theme, the
 newer intro credits and help pages, and the burning row on Asteroid Belt
 Road 1. The port was first made from an earlier, DIET-packed release
-(`../resources/SkyRoads (1993).zip`, decompiled in `../build/skyroads.c`) and
-then moved onto this one: `../scripts/addrmap.py` aligns the two builds
-instruction by instruction and writes `../build/addrmap.json` (where every
-function and data address moved), and `../scripts/rebase_port.py` rewrote the
+(`../resources/SkyRoads (1993).zip`, decompiled in `../archive/skyroads_1993.c`) and
+then moved onto this one: `../archive/addrmap.py` aligns the two builds
+instruction by instruction and writes `../archive/addrmap.json` (where every
+function and data address moved), and `../archive/rebase_port.py` rewrote the
 hand-written code with it.
 
 ## Build & run
@@ -57,9 +57,11 @@ real time; it opens a window).
 
 | file | contents |
 |------|----------|
-| `transform.py` | turns `../build/skyroads.c` into `game.c`/`game.h` (types, DS memory accesses, K&R definitions, real stack frames, call-site fixups, argument-count normalisation logged to `arity.log`) |
-| `gen_protos.py` | writes `protos.h`: one full prototype per function, derived from the definitions |
-| `wrap16.py` | restores 16-bit integer semantics in `game.c` using Clang's typed AST: 16-bit arithmetic is truncated where 32-bit C would not wrap, mixed-sign comparisons become unsigned |
+| `gen/transform.py` | turns `../ghidra/skyroads_bluemoon.c` into `game.c`/`game.h` (types, DS memory accesses, K&R definitions, real stack frames, call-site fixups, argument-count normalisation logged to `arity.log`) |
+| `gen/gen_protos.py` | writes `protos.h`: one full prototype per function, derived from the definitions |
+| `gen/wrap16.py` | restores 16-bit integer semantics in `game.c` using Clang's typed AST: 16-bit arithmetic is truncated where 32-bit C would not wrap, mixed-sign comparisons become unsigned |
+| `gen/gen_image.py` | writes `image_data.h`: the EXE's load image, which the port's memory starts from |
+| `gen/gen_wide_bg.py` | writes `wide_bg.h`: the widescreen margins, from the pictures in `../art/` |
 | `game.c` | generated game logic (~80 functions) |
 | `manual.c` | blitters, timer/keyboard hooks and other routines whose decompilation lost segment registers |
 | `render.c` | the road/ship renderer (hand written assembly at 1000:2cce–3acb) and its per-frame driver |
@@ -105,7 +107,7 @@ hold accelerate to go through a whole road), `SKY_WAV=file`
 (raw audio dump).  Widescreen: `SKY_WIDE=1` (or Cmd/Alt+W), `SKY_VIEW_W=n`
 (force the view to n columns, up to 573), `SKY_WIDE_FULL=1` / `SKY_WIDE_DIFF=1`
 (draw the margin road's model over the frame on alternate lines / mark where
-it differs).  `run_test.sh` and `check_arity.py` are development aids.
+it differs).  `run_test.sh` and `gen/check_arity.py` are development aids.
 
 A WebAssembly build of the same code is its own repository, skyroads-web,
 with this one as a submodule (see its README).

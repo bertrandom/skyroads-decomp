@@ -1,5 +1,5 @@
 /* Native implementations of the decompiled DOS/BIOS/compiler-runtime helpers.
- * See runtime.h and docs in transform.py. */
+ * See runtime.h and docs in gen/transform.py. */
 #include "compat.h"
 #include "protos.h"
 #include <unistd.h>

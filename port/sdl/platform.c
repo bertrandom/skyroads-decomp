@@ -63,10 +63,10 @@ static int           s_scale = 3;
 /* Widescreen: the original 320x200 frame in the middle, the view as wide as
  * the window (from 4:3 up to MAX_W columns, 3440x1440 ultrawide) with margins
  * either side.  During a run the margins show the road's backdrop painted out
- * to ultrawide (wide_bg.h, from backgrounds-ultrawide/filled), cut to the
+ * to ultrawide (wide_bg.h, from art/backgrounds-ultrawide/filled), cut to the
  * view's width, or for a road without one, the backdrop and dashboard
  * mirrored past the frame's edges.  The intro and the menu screens show
- * their pictures painted out too (wide_menu, from menu-backgrounds/4x3/
+ * their pictures painted out too (wide_menu, from art/menu-backgrounds/4x3/
  * filled); elsewhere the margins are black.
  * The road itself is not drawn there, so it ends at the old edges.
  * Natively: SKY_WIDE=1, or Cmd/Alt+W; the page sets the view's width. */

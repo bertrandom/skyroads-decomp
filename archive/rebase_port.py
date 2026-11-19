@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rewrite the hand-written port from the early SKYROADS.EXE to Bluemoon's build.
 
-Uses build/addrmap.json (scripts/addrmap.py) to move, in port/*.c and *.h
+Uses archive/addrmap.json (archive/addrmap.py) to move, in port/*.c and *.h
 (not the generated game.c / game.h / protos.h / image_data.h):
 
   FUN_1000_xxxx names          -> the same function in the new build
@@ -20,7 +20,7 @@ import re
 import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-MAP = json.load(open(os.path.join(ROOT, "build/addrmap.json")))
+MAP = json.load(open(os.path.join(ROOT, "archive/addrmap.json")))
 SKIP = {"game.c", "game.h", "protos.h", "image_data.h", "relay_key.h"}
 
 FUNC = {int(k, 16): int(v, 16) for k, v in MAP["code"].items()}

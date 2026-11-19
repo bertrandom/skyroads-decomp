@@ -3,7 +3,7 @@
 #   make            build ./skyroads (run it from the repository; it finds
 #                   ../resources/Skyroads automatically)
 #   make app        build SkyRoads.app (self-contained: data + SDL2 inside)
-#   make regen      re-run the transformation of ../build/skyroads.c
+#   make regen      re-run the transformation of ../ghidra/skyroads_bluemoon.c
 #   make songs      the game's songs as WAV files in songs/, as this build
 #                   plays them (tools/render_songs.c)
 #   make clean
@@ -33,26 +33,27 @@ all: skyroads
 
 MANUAL_SRC = runtime.c manual.c render.c sdl/audio.c music.c sdl/hw.c video.c
 
-game.c game.h protos.h: ../build/skyroads_bluemoon.c transform.py gen_protos.py wrap16.py $(MANUAL_SRC)
-	python3 transform.py
+# the generators (gen/) run from here: their paths are relative to port/
+game.c game.h protos.h: ../ghidra/skyroads_bluemoon.c gen/transform.py gen/gen_protos.py gen/wrap16.py $(MANUAL_SRC)
+	python3 gen/transform.py
 
 regen:
-	python3 transform.py
+	python3 gen/transform.py
 
-image_data.h: ../resources/Skyroads/SKYROADS.EXE gen_image.py
-	python3 gen_image.py ../resources/Skyroads/SKYROADS.EXE image_data.h
+image_data.h: ../resources/Skyroads/SKYROADS.EXE gen/gen_image.py
+	python3 gen/gen_image.py ../resources/Skyroads/SKYROADS.EXE image_data.h
 
-# widescreen margins painted for each road (../backgrounds-ultrawide/filled)
-WIDE_BG_DIR = ../backgrounds-ultrawide/filled
-WIDE_PANEL = ../control-panel/control-panel_wide.png
-WIDE_MENU_DIR = ../menu-backgrounds/4x3/filled
-WIDE_INPUTS = gen_wide_bg.py $(wildcard $(WIDE_BG_DIR)/*.png) $(wildcard $(WIDE_PANEL)) $(wildcard $(WIDE_MENU_DIR)/*.png)
+# widescreen margins painted for each road (../art/backgrounds-ultrawide/filled)
+WIDE_BG_DIR = ../art/backgrounds-ultrawide/filled
+WIDE_PANEL = ../art/control-panel/control-panel_wide.png
+WIDE_MENU_DIR = ../art/menu-backgrounds/4x3/filled
+WIDE_INPUTS = gen/gen_wide_bg.py $(wildcard $(WIDE_BG_DIR)/*.png) $(wildcard $(WIDE_PANEL)) $(wildcard $(WIDE_MENU_DIR)/*.png)
 # by content, not date: a picture saved with an older date is still noticed
 wide_bg.sum: FORCE
 	@python3 -c 'import hashlib,sys; print("\n".join(f + " " + hashlib.sha1(open(f, "rb").read()).hexdigest() for f in sys.argv[1:]))' $(WIDE_INPUTS) > $@.new
 	@cmp -s $@.new $@ && rm $@.new || mv $@.new $@
 wide_bg.h: wide_bg.sum
-	python3 gen_wide_bg.py $(WIDE_BG_DIR) wide_bg.h $(WIDE_PANEL) $(WIDE_MENU_DIR)
+	python3 gen/gen_wide_bg.py $(WIDE_BG_DIR) wide_bg.h $(WIDE_PANEL) $(WIDE_MENU_DIR)
 FORCE:
 platform.o: sdl/platform.c wide_bg.h compat.h
 

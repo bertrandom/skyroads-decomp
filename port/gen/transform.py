@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn the Ghidra pseudo-C in ../build/skyroads.c into compilable native C.
+"""Turn the Ghidra pseudo-C in ../ghidra/skyroads_bluemoon.c into compilable native C.
 
 The original is a 16-bit small/medium model DOS program.  We keep its flat
 data-segment memory model: every literal DS offset becomes an access into
@@ -14,7 +14,7 @@ import re
 import gen_protos
 import wrap16
 
-SRC = "../build/skyroads_bluemoon.c"
+SRC = "../ghidra/skyroads_bluemoon.c"
 OUT_C = "game.c"
 OUT_H = "game.h"
 

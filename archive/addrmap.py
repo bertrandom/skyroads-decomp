@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Map addresses between two builds of SKYROADS.EXE.
 
-The port was decompiled from an early SKYROADS.EXE (build/SKYROADS_unpacked.EXE);
+The port was decompiled from an early SKYROADS.EXE (archive/SKYROADS_unpacked.EXE);
 Bluemoon's current release (resources/Skyroads/SKYROADS.EXE, the same file as
 SkyRoads Xmas Special's SKYXMAS.EXE) is a lightly revised build of the same
 program in which most code and data moved by a few bytes.  This aligns the two
