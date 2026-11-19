@@ -85,7 +85,7 @@ static inline uint8_t *near_ptr(uintptr_t p) {
     if (p < 0x100000000ull || p >= 0xffffffffffff0000ull)
         return g_ds + (uint16_t)p;
 #else
-    /* wasm32: the build places all host data above 64 KiB (see web/Makefile) */
+    /* wasm32: the build places all host data above 64 KiB (see skyroads-web's web/Makefile) */
     if (p < 0x10000u || p >= 0xffff0000u)
         return g_ds + (uint16_t)p;
 #endif

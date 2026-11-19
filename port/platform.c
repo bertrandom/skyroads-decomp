@@ -598,7 +598,7 @@ static int frame_step(void)
                 }
                 /* W: widescreen on/off, S: sound on/off, F: full screen,
                  * - and =: volume down / up (the game uses none of them;
-                 * the page has its own, see web/shell.html) */
+                 * the page has its own, see skyroads-web's web/shell.html) */
                 if (!(e.key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) {
                     if (e.key.keysym.sym == SDLK_MINUS || e.key.keysym.sym == SDLK_EQUALS) {
                         volume_step(e.key.keysym.sym == SDLK_MINUS ? -10 : 10);

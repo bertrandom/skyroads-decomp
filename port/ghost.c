@@ -2,9 +2,10 @@
  * sprite per frame) and replayed as translucent ghosts at the same run time.
  *
  * Two sources:
- *  - live (browser build with a relay configured, see web/live-ghosts.js and
- *    server/relay.py): runs other players started on the same road shortly
- *    before you, streamed through a WebSocket relay.  Switching multiplayer
+ *  - live (browser build with a relay configured, see skyroads-web's
+ *    web/live-ghosts.js and server/relay.py): runs other players started
+ *    on the same road shortly before you, streamed through a WebSocket
+ *    relay.  Switching multiplayer
  *    off in the settings menu (single player) shows no ghosts; so does a
  *    browser build without a relay;
  *  - saved (native builds only): your own earlier runs of the road; the
@@ -95,7 +96,7 @@ typedef struct {
 } Draw;
 
 /* ghost tints: your own saved runs, and one per live player (the relay
- * gives each player shown a different index, COLORS in server/relay.py) */
+ * gives each player shown a different index, COLORS in skyroads-web's server/relay.py) */
 static const uint8_t TINT_SAVED[3] = { 170, 215, 255 };
 #define NTINTS 8
 static const uint8_t TINTS[NTINTS][3] = {
@@ -502,7 +503,8 @@ void ghost_overlay(uint32_t *pixels, int pitch)
 }
 
 /* ------------------------------------------------------------------ */
-/* live ghosts: called on the main thread by web/live-ghosts.js        */
+/* live ghosts: called on the main thread by skyroads-web's            */
+/* web/live-ghosts.js                                                  */
 /* ------------------------------------------------------------------ */
 #ifdef __EMSCRIPTEN__
 static Remote *remote_get(uint32_t id)
